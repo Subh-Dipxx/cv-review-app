@@ -46,90 +46,62 @@ function Page() {
       toast.error("Please upload at least one PDF!");
       return;
     }
-    
+
     setLoading(true);
     setResults([]);
-    
+
     try {
       toast.loading("Parsing PDFs...", { id: "processing" });
-      console.log(`Starting to process ${files.length} files`);
-      
+
       const formData = new FormData();
-      files.forEach((file, index) => {
-        console.log(`Adding file ${index + 1}: ${file.name}, size: ${file.size}, type: ${file.type}`);
-        formData.append("files", file);
-      });
-      
-      console.log("Sending parse request...");
+      files.forEach((file) => formData.append("files", file));
+
       const parseResponse = await fetch("/api/parse-cv", {
         method: "POST",
         body: formData,
       });
-      
-      console.log(`Parse response status: ${parseResponse.status}`);
-      
-      if (!parseResponse.ok) {
-        let errorMessage = `Parse failed with status ${parseResponse.status}`;
-        try {
-          const errorData = await parseResponse.json();
-          errorMessage = errorData.error || errorMessage;
-          console.error("Parse error details:", errorData);
-        } catch (jsonError) {
-          console.error("Could not parse error response as JSON:", jsonError);
-          const errorText = await parseResponse.text();
-          console.error("Error response text:", errorText);
-          errorMessage = errorText || errorMessage;
-        }
-        throw new Error(errorMessage);
+
+      let parseData;
+      try {
+        parseData = await parseResponse.json();
+      } catch {
+        throw new Error("The server returned an unexpected response. Please check your PDF files or contact support.");
       }
-      
-      const parseData = await parseResponse.json();
-      console.log("Parse data received:", parseData);
-      
-      if (parseData.error) {
+
+      if (!parseResponse.ok) {
+        throw new Error(parseData?.error || `Parse failed with status ${parseResponse.status}`);
+      }
+      if (parseData?.error) {
         throw new Error(parseData.error);
       }
 
-      if (!parseData.results || !Array.isArray(parseData.results)) {
-        throw new Error("Invalid parse response format");
-      }
-
       toast.loading("Categorizing CVs...", { id: "processing" });
-      console.log("Sending process request...");
 
       const processResponse = await fetch("/api/process-cv", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ results: parseData.results }),
       });
-      
-      console.log(`Process response status: ${processResponse.status}`);
-      
-      if (!processResponse.ok) {
-        let errorMessage = `Process failed with status ${processResponse.status}`;
-        try {
-          const errorData = await processResponse.json();
-          errorMessage = errorData.error || errorMessage;
-          console.error("Process error details:", errorData);
-        } catch (jsonError) {
-          const errorText = await processResponse.text();
-          console.error("Process error text:", errorText);
-          errorMessage = errorText || errorMessage;
-        }
-        throw new Error(errorMessage);
+
+      let processData;
+      try {
+        processData = await processResponse.json();
+      } catch {
+        throw new Error("The server returned an unexpected response for process-cv.");
       }
-      
-      const processData = await processResponse.json();
-      console.log("Process data received:", processData);
-      
+
+      if (!processResponse.ok) {
+        throw new Error(processData.error || `Process failed with status ${processResponse.status}`);
+      }
       if (processData.error) {
         throw new Error(processData.error);
       }
 
-      const categorizedResults = processData.categorized || [];
-      setResults(categorizedResults);
-      toast.success(`Successfully processed ${categorizedResults.length} files!`, { id: "processing" });
-      
+      setResults(processData.categorized || []);
+      toast.success(
+        `Successfully processed ${processData.categorized?.length || 0} files!`,
+        { id: "processing" }
+      );
     } catch (error) {
       console.error("CV processing error:", error);
       toast.error(`Processing failed: ${error.message}`, { id: "processing" });

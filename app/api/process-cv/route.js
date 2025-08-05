@@ -61,124 +61,92 @@ import pool from "../../lib/db";
 export async function POST(request) {
   let connection;
   try {
-    const { results } = await request.json();
-    if (!results || !Array.isArray(results)) {
-      console.error("Invalid input received:", results);
-      return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+    // Parse request body safely
+    let requestBody;
+    try {
+      requestBody = await request.json();
+    } catch (jsonError) {
+      return NextResponse.json({ 
+        error: `Invalid JSON in request: ${jsonError.message}` 
+      }, { status: 400 });
     }
 
-    // Get database connection with timeout
-    const connectionPromise = pool.getConnection();
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Database connection timeout')), 10000)
-    );
+    const { results } = requestBody;
     
-    connection = await Promise.race([connectionPromise, timeoutPromise]);
-    
+    if (!results || !Array.isArray(results)) {
+      return NextResponse.json({ 
+        error: "Invalid input: results must be an array" 
+      }, { status: 400 });
+    }
+
+    // Get database connection with error handling
+    try {
+      connection = await pool.getConnection();
+    } catch (dbError) {
+      console.error("Database connection error:", dbError);
+      return NextResponse.json({ 
+        error: `Database connection error: ${dbError.message}` 
+      }, { status: 500 });
+    }
+
     // Ensure table exists
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS cvs (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        file_name VARCHAR(255) NOT NULL,
-        category VARCHAR(100) NOT NULL,
-        summary TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    
+    try {
+      await connection.query(`
+        CREATE TABLE IF NOT EXISTS cvs (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          file_name VARCHAR(255) NOT NULL,
+          category VARCHAR(100) NOT NULL,
+          summary TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+    } catch (tableError) {
+      console.error("Table creation error:", tableError);
+      return NextResponse.json({ 
+        error: `Failed to create table: ${tableError.message}` 
+      }, { status: 500 });
+    }
+
+    // Process each CV
     const categorized = [];
     
     for (const cv of results) {
       try {
-        // Handle completely empty or invalid CVs
-        if (!cv || !cv.fileName) {
-          console.warn('Invalid CV object:', cv);
+        if (!cv || !cv.fileName || !cv.text || typeof cv.text !== 'string') {
+          categorized.push({
+            fileName: cv.fileName || "Unknown",
+            category: "Error",
+            summary: "Invalid CV data",
+          });
           continue;
         }
 
+        const text = cv.text.toLowerCase();
         let category = "Other";
-        let summary = "No content available";
-
-        if (!cv.text || cv.text.trim().length === 0) {
-          category = "Error";
-          summary = "No text content available";
-        } else {
-          const text = cv.text.toLowerCase();
-          const cleanText = text.replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
-          
-          // Categorization logic
-          if (cleanText.length < 20) {
-            category = "Incomplete/Short Document";
-            summary = "Document too short to analyze";
-          } else {
-            // Comprehensive categorization
-            if (cleanText.includes("qa") || cleanText.includes("testing") || cleanText.includes("selenium") || 
-                cleanText.includes("quality assurance") || cleanText.includes("test automation")) {
-              category = "QA Engineer";
-            } else if (
-              cleanText.includes("business analyst") || cleanText.includes("requirements") ||
-              cleanText.includes("stakeholder") || cleanText.includes("ba ") ||
-              cleanText.includes("business analysis")
-            ) {
-              category = "BA Engineer";
-            } else if (
-              cleanText.includes("developer") || cleanText.includes("programmer") ||
-              cleanText.includes("software engineer") || cleanText.includes("coding") ||
-              cleanText.includes("javascript") || cleanText.includes("python") || cleanText.includes("java")
-            ) {
-              category = "Software Developer";
-            } else if (
-              cleanText.includes("project manager") || cleanText.includes("scrum master") ||
-              cleanText.includes("agile") || cleanText.includes("project management")
-            ) {
-              category = "Project Manager";
-            } else if (
-              cleanText.includes("data analyst") || cleanText.includes("data scientist") ||
-              cleanText.includes("machine learning") || cleanText.includes("sql")
-            ) {
-              category = "Data Analyst";
-            } else if (
-              cleanText.includes("designer") || cleanText.includes("ui") || cleanText.includes("ux")
-            ) {
-              category = "Designer";
-            } else if (
-              cleanText.includes("devops") || cleanText.includes("cloud") || 
-              cleanText.includes("aws") || cleanText.includes("docker")
-            ) {
-              category = "DevOps Engineer";
-            }
-
-            // Create summary
-            const lines = cv.text.split(/[\n\r]+/).filter(line => line.trim().length > 5);
-            if (lines.length > 0) {
-              const relevantLines = lines
-                .filter(line => line.trim().length > 10 && line.trim().length < 200)
-                .slice(0, 3)
-                .map(line => line.trim());
-              
-              summary = relevantLines.join(". ").substring(0, 300);
-              if (summary.length === 300) summary += "...";
-              
-              if (!summary) {
-                summary = `${category} document with ${cv.text.length} characters`;
-              }
-            }
-          }
+        
+        // Categorize based on keywords
+        if (text.includes("qa") || text.includes("testing") || text.includes("quality assurance")) {
+          category = "QA Engineer";
+        } else if (text.includes("business analyst") || text.includes("requirements")) {
+          category = "BA Engineer";
+        } else if (text.includes("developer") || text.includes("programmer") || text.includes("software engineer")) {
+          category = "Software Developer";
         }
 
-        // Sanitize data
-        const sanitizedFileName = (cv.fileName || 'Unknown').substring(0, 250);
-        const sanitizedSummary = summary.substring(0, 1000);
-        
+        // Generate summary
+        const lines = cv.text.split(/[\n\r]+/).filter(line => line.trim().length > 10);
+        const summary = lines.slice(0, 3).join(" ").substring(0, 250) + "...";
+        console.log("Inserting CV:", { fileName: cv.fileName, category, summary });
+
         // Save to database
         try {
           await connection.query(
             "INSERT INTO cvs (file_name, category, summary) VALUES (?, ?, ?)",
-            [sanitizedFileName, category, sanitizedSummary]
+            [cv.fileName, category, summary]
           );
-        } catch (dbError) {
-          console.error(`Database error for ${cv.fileName}:`, dbError.message);
-          // Continue processing even if DB save fails
+        } catch (insertError) {
+          console.error(`Database insert error for ${cv.fileName}:`, insertError.message);
+          // Continue processing even if DB insert fails
         }
 
         categorized.push({
@@ -187,28 +155,26 @@ export async function POST(request) {
           summary,
         });
       } catch (cvError) {
-        console.error(`Error processing CV ${cv.fileName}:`, cvError.message);
         categorized.push({
-          fileName: cv.fileName || 'Unknown File',
+          fileName: cv.fileName || "Unknown",
           category: "Error",
-          summary: `Processing failed: ${cvError.message}`,
+          summary: `Failed to process: ${cvError.message}`,
         });
       }
     }
 
     return NextResponse.json({ categorized });
   } catch (error) {
-    console.error("Error in process-cv API:", error.message);
-    return NextResponse.json(
-      { error: `Failed to process CVs: ${error.message}` },
-      { status: 500 }
-    );
+    console.error("Process CV API error:", error);
+    return NextResponse.json({ 
+      error: `Failed to process CVs: ${error.message}` 
+    }, { status: 500 });
   } finally {
     if (connection) {
       try {
         connection.release();
       } catch (releaseError) {
-        console.error("Error releasing connection:", releaseError.message);
+        console.error("Error releasing connection:", releaseError);
       }
     }
   }
