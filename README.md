@@ -109,6 +109,31 @@ The app automatically categorizes CVs into:
 - Incomplete/Short Document
 - Other
 
+## Troubleshooting
+
+### Common Issues
+
+1. **"Parse request failed" error**:
+   - Ensure `pdf-parse` is installed: `npm install pdf-parse`
+   - Check file size limits (max 5MB per file)
+   - Verify PDF files are not corrupted or password-protected
+
+2. **Database connection errors**:
+   - Verify MySQL is running
+   - Check database credentials in `.env.local`
+   - Ensure database `cv_review` exists
+
+3. **Module not found errors**:
+   - Run `npm install` to install all dependencies
+   - Delete `node_modules` and `package-lock.json`, then run `npm install`
+
+### Dependencies
+
+Make sure these packages are installed:
+```bash
+npm install pdf-parse mysql2 react-dropzone react-hot-toast
+```
+
 ## Contributing
 
 1. Fork the repository
@@ -120,31 +145,6 @@ The app automatically categorizes CVs into:
 ## License
 
 This project is licensed under the MIT License.
-
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
-
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
 To learn more about Next.js, take a look at the following resources:
 
 - [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
