@@ -11,7 +11,7 @@ yarn-error.log*
 out/
 build/
 
-# Environment variables
+# Environment variables - make sure these are included
 .env
 .env.local
 .env.development.local
@@ -53,3 +53,5 @@ Thumbs.db
 # Temporary folders
 tmp/
 temp/
+
+.vercel

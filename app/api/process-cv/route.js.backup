@@ -1,0 +1,574 @@
+// import { NextResponse } from "next/server";
+
+// export async function POST(request) {
+//   try {
+//     const { results } = await request.json();
+//     if (!results || !Array.isArray(results)) {
+//       console.error("Invalid input received:", results);
+//       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+//     }
+
+//     const categorized = results.map((cv, index) => {
+//       try {
+//         const text = cv.text.toLowerCase();
+//         let category = "Other";
+//         if (text.includes("qa") || text.includes("testing") || text.includes("selenium")) {
+//           category = "QA Engineer";
+//         } else if (
+//           text.includes("business analyst") ||
+//           text.includes("requirements") ||
+//           text.includes("stakeholder")
+//         ) {
+//           category = "BA Engineer";
+//         }
+
+//         const summary = text
+//           .split("\n")
+//           .filter((line) => line.trim().length > 10)
+//           .slice(0, 3)
+//           .join(" ")
+//           .substring(0, 150) + "...";
+
+//         return {
+//           fileName: cv.fileName,
+//           category,
+//           summary,
+//         };
+//       } catch (cvError) {
+//         console.error(`Error processing CV ${cv.fileName}:`, cvError.message);
+//         return {
+//           fileName: cv.fileName,
+//           category: "Error",
+//           summary: "Failed to process CV",
+//         };
+//       }
+//     });
+
+//     return NextResponse.json({ categorized });
+//   } catch (error) {
+//     console.error("Error in process-cv API:", error.message);
+//     return NextResponse.json(
+//       { error: `Failed to process CVs: ${error.message}` },
+//       { status: 500 }
+//     );
+//   }
+// }
+
+
+import { NextResponse } from "next/server";
+import pool from "../../lib/db";
+import { analyzeCvWithAI } from "../../lib/ai-service";
+
+export async function POST(request) {
+  let connection;
+  console.log("POST /api/process-cv - Request received");
+  
+  try {
+    // Parse request body safely
+    let requestBody;
+    try {
+      requestBody = await request.json();
+    } catch (jsonError) {
+      return NextResponse.json({ 
+        error: `Invalid JSON in request: ${jsonError.message}` 
+      }, { status: 400 });
+    }
+
+    const { results } = requestBody;
+    
+    if (!results || !Array.isArray(results)) {
+      return NextResponse.json({ 
+        error: "Invalid input: results must be an array" 
+      }, { status: 400 });
+    }
+
+    // Get database connection with error handling
+    try {
+      connection = await pool.getConnection();
+    } catch (dbError) {
+      console.error("Database connection error:", dbError);
+      return NextResponse.json({ 
+        error: `Database connection error: ${dbError.message}` 
+      }, { status: 500 });
+    }
+
+    // Ensure table exists with new fields
+    try {
+      // Check if table exists first
+      const [tables] = await connection.query("SHOW TABLES LIKE 'cvs'");
+      
+      if (tables.length === 0) {
+        // Create the table if it doesn't exist
+        await connection.query(`
+          CREATE TABLE cvs (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            file_name VARCHAR(255) NOT NULL,
+            category VARCHAR(100) NOT NULL,
+            summary TEXT,
+            years_of_experience INT DEFAULT 0,
+            job_title VARCHAR(255),
+            skills TEXT,
+            professional_summary TEXT,
+            college_name VARCHAR(255),
+            email VARCHAR(255),
+            phone VARCHAR(50),
+            name VARCHAR(255),
+            projects TEXT,
+            recommended_roles TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+      } else {
+        // Add any missing columns to the existing table
+        const columns = [
+          { name: 'years_of_experience', definition: 'INT DEFAULT 0' },
+          { name: 'job_title', definition: 'VARCHAR(255)' },
+          { name: 'skills', definition: 'TEXT' },
+          { name: 'professional_summary', definition: 'TEXT' },
+          { name: 'college_name', definition: 'VARCHAR(255)' },
+          { name: 'email', definition: 'VARCHAR(255)' },
+          { name: 'phone', definition: 'VARCHAR(50)' },
+          { name: 'name', definition: 'VARCHAR(255)' },
+          { name: 'projects', definition: 'TEXT' },
+          { name: 'recommended_roles', definition: 'TEXT' }
+        ];
+        
+        for (const column of columns) {
+          try {
+            const [columnExists] = await connection.query(
+              `SHOW COLUMNS FROM cvs LIKE '${column.name}'`
+            );
+            
+            if (columnExists.length === 0) {
+              await connection.query(
+                `ALTER TABLE cvs ADD COLUMN ${column.name} ${column.definition}`
+              );
+              console.log(`Added missing column: ${column.name}`);
+            }
+          } catch (columnError) {
+            console.error(`Error checking/adding column ${column.name}:`, columnError);
+          }
+        }
+      }
+    } catch (tableError) {
+      console.error("Error setting up database table:", tableError);
+      throw tableError; // Rethrow to be caught by the main try/catch
+    }
+    
+    // Process each CV
+    const categorized = [];
+    
+    for (const cv of results) {
+      try {
+        console.log(`Processing CV: ${cv.fileName}`);
+        // Skip invalid data
+        if (!cv || typeof cv.fileName !== "string" || typeof cv.text !== "string" || cv.text.trim().length === 0) {
+          categorized.push({
+            fileName: cv.fileName || "Unknown",
+            category: "Error",
+            summary: "Invalid CV data",
+          });
+          continue;
+        }
+
+        // Check if OpenAI API key is configured properly
+        const apiKeyConfigured = process.env.OPENAI_API_KEY && 
+                               process.env.OPENAI_API_KEY !== "your-actual-api-key-here" && 
+                               process.env.OPENAI_API_KEY.startsWith("sk-");
+
+        // Use AI to analyze the CV only if API key is configured
+        let aiAnalysis;
+        let aiError = null;
+        if (apiKeyConfigured && typeof analyzeCvWithAI === 'function') {
+          try {
+            // Ensure CV text is not too short
+            if (cv.text && cv.text.length > 100) {
+              aiAnalysis = await analyzeCvWithAI(cv.text);
+              
+              // Verify we got a valid response
+              if (aiAnalysis && typeof aiAnalysis === 'object') {
+                console.log("AI analysis successful for:", cv.fileName);
+              } else {
+                console.error("Invalid AI analysis result:", aiAnalysis);
+                aiAnalysis = null;
+              }
+            } else {
+              console.log("Text too short for AI analysis, using basic analysis");
+              aiAnalysis = null;
+            }
+          } catch (error) {
+            aiError = error;
+            console.error("AI analysis failed:", error.message);
+            
+            // Check if it's a quota exceeded error
+            const isQuotaError = error.message && (
+              error.message.includes("429") || 
+              error.message.includes("quota") || 
+              error.message.includes("rate limit")
+            );
+            
+            if (isQuotaError) {
+              console.warn("OpenAI API quota exceeded - switching to basic analysis");
+            } else {
+              console.error("Other AI error:", error);
+            }
+            aiAnalysis = null;
+          }
+        } else {
+          if (!apiKeyConfigured) {
+            console.log("OpenAI API key not properly configured, using basic analysis");
+          } else {
+            console.log("AI analysis function not available, using basic analysis");
+          }
+          aiAnalysis = null;
+        }
+
+        // If AI analysis failed or was skipped, use basic analysis
+        if (!aiAnalysis || !aiAnalysis.professionalSummary) {
+          const text = cv.text.toLowerCase();
+          
+          // Don't use a generic prefix
+          let summaryPrefix = "";
+          
+          // Extract more skills with keyword detection
+          const skillKeywords = [
+            'javascript', 'python', 'java', 'html', 'css', 'react', 'angular', 'vue', 
+            'node', 'express', 'mongodb', 'sql', 'nosql', 'aws', 'azure', 'git', 
+            'docker', 'kubernetes', 'agile', 'scrum', 'rest', 'api', 'testing', 
+            'automation', 'ci/cd', 'mobile', 'android', 'ios', 'flutter', 'react native'
+          ];
+          
+          const skills = [];
+          skillKeywords.forEach(skill => {
+            if (text.includes(skill)) {
+              skills.push(skill.charAt(0).toUpperCase() + skill.slice(1));
+            }
+          });
+          
+          // Extract email with regex
+          const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/;
+          const emailMatch = cv.text.match(emailPattern);
+          let email = emailMatch ? emailMatch[0] : "";
+          
+          // Clean email if found
+          if (email) {
+            // Remove any phone number that might be incorrectly attached to the front
+            email = email.replace(/^\d+/, '');
+          }
+          
+          // Try to extract name - look for common name patterns
+          let name = "";
+          const nameLines = cv.text.split('\n').slice(0, 5); // Usually name is at the top
+          for (const line of nameLines) {
+            const trimmedLine = line.trim();
+            // Look for standalone lines with 2-3 words that might be names
+            if (trimmedLine && 
+                trimmedLine.split(' ').length >= 2 && 
+                trimmedLine.split(' ').length <= 4 &&
+                trimmedLine.length < 40 &&
+                !/[0-9@]/.test(trimmedLine)) { // No numbers or @ signs in names
+              name = trimmedLine;
+              break;
+            }
+          }
+          
+          // Try to extract job title
+          let jobTitle = "";
+          const jobTitles = [
+            'software developer', 'software engineer', 'web developer',
+            'frontend developer', 'backend developer', 'full stack developer',
+            'qa engineer', 'quality assurance', 'business analyst',
+            'data analyst', 'data scientist', 'project manager'
+          ];
+          
+          for (const title of jobTitles) {
+            if (text.includes(title)) {
+              jobTitle = title.split(' ')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(' ');
+              break;
+            }
+          }
+          
+          // Extract college name more effectively
+          const educationKeywords = [
+            'university', 'college', 'institute', 'school', 'academy',
+            'bachelor', 'master', 'phd', 'degree', 'b.tech', 'b.e', 'm.tech', 'mba'
+          ];
+          
+          // Keywords to avoid when extracting education
+          const avoidKeywords = [
+            'objective', 'summary', 'profile', 'experience', 'skills', 
+            'projects', 'certification', 'contact', 'address', 'phone', 'email'
+          ];
+          
+          let collegeName = "";
+          const lines = cv.text.split('\n');
+          
+          // Look for lines containing education keywords
+          for (const line of lines) {
+            const lowerLine = line.toLowerCase().trim();
+            
+            // Skip if line contains words that indicate it's not about education
+            if (avoidKeywords.some(keyword => lowerLine.includes(keyword))) {
+              continue;
+            }
+            
+            if (educationKeywords.some(keyword => lowerLine.includes(keyword))) {
+              // Clean up the line
+              collegeName = line.trim()
+                .replace(/^[•\-\*\s]+/, '') // Remove bullet points at start
+                .replace(/^\d+\.\s*/, '') // Remove numbering
+                .replace(/\d{1,2}\/\d{4}.*$/, '') // Remove dates like 8/2022
+                .replace(/\d{1,2}[-–]\d{4}.*$/, '') // Remove dates like 8-2022
+                .replace(/\s+\d{4}(\s+[-–]\s+|\s+to\s+|\s+[-–]\s+present).*$/i, '') // Remove year ranges
+                .replace(/\(.*?\)/g, '') // Remove anything in parentheses
+                .replace(/\s+day$/i, '') // Remove trailing "day"
+                .replace(/\s+present$/i, '') // Remove trailing "present"
+                .replace(/\s+engineering\s+stratford$/i, '') // Remove specific text
+                .trim();
+              
+              // Only set if we have something substantial
+              if (collegeName && collegeName.length > 5) {
+                break;
+              }
+            }
+          }
+          
+          // Simple categorization
+          let category = "Other";
+          if (text.includes("qa") || text.includes("testing")) category = "QA Engineer";
+          else if (text.includes("developer") || text.includes("programming") || 
+                  text.includes("javascript") || text.includes("java") || 
+                  text.includes("python") || text.includes("software engineer")) category = "Software Developer";
+          else if (text.includes("business analyst")) category = "BA Engineer";
+          
+          // Create a proper professional summary
+          const bestSentences = cv.text
+            .split(/[.!?]/)
+            .filter(sentence => sentence.trim().length > 15 && sentence.trim().length < 150)
+            .slice(0, 3);
+            
+          let professionalSummary = bestSentences.join('. ');
+          if (!professionalSummary) {
+            // Fallback summary if no good sentences found
+            professionalSummary = `Professional`;
+            if (collegeName) {
+              professionalSummary += ` with education from ${collegeName}`;
+            }
+          }
+          
+          // Make sure summary has content
+          const summary = professionalSummary || `Resume for ${cv.fileName}`;
+          
+          // Define project keywords before using them
+          const projectKeywords = ["project", "developed", "created", "built", "implemented"];
+          
+          // Simple project extraction
+          const projectSentences = cv.text.split(/[.!?]/)
+            .filter(sentence => 
+              projectKeywords.some(keyword => 
+                sentence.toLowerCase().includes(keyword)
+              )
+            ).slice(0, 3);
+          
+          const projects = projectSentences.map(sentence => ({
+            name: sentence.trim().split(" ").slice(0, 4).join(" ") + "...",
+            description: sentence.trim()
+          }));
+          
+          // Generate recommended roles based on keywords with percentages
+          const recommendedRoles = [];
+          
+          // Define role requirements and weights
+          const roleRequirements = {
+            "Frontend Developer": {
+              skills: ["html", "css", "javascript", "react", "vue", "angular", "ui", "responsive", "web"],
+              weight: 1.2
+            },
+            "Backend Developer": {
+              skills: ["node", "express", "api", "database", "sql", "nosql", "java", "python", "server"],
+              weight: 1.0
+            },
+            "Full Stack Developer": {
+              skills: ["frontend", "backend", "fullstack", "react", "node", "api", "database", "javascript"],
+              weight: 1.3
+            },
+            "Mobile Developer": {
+              skills: ["android", "ios", "mobile", "flutter", "react native", "swift", "kotlin"],
+              weight: 1.1
+            },
+            "Data Analyst": {
+              skills: ["data", "analysis", "analytics", "sql", "statistics", "excel", "visualization", "reporting"],
+              weight: 1.0
+            },
+            "QA Engineer": {
+              skills: ["testing", "qa", "quality", "test", "automation", "selenium", "assurance"],
+              weight: 0.9
+            }
+          };
+          
+          // Calculate match percentages for each role
+          Object.entries(roleRequirements).forEach(([role, requirements]) => {
+            const skillMatches = requirements.skills.filter(skill => 
+              text.includes(skill)
+            );
+            
+            if (skillMatches.length > 0) {
+              // Calculate percentage based on matched skills and weight
+              const percentage = Math.min(
+                100, 
+                Math.round(
+                  (skillMatches.length / requirements.skills.length) * 100 * requirements.weight
+                )
+              );
+              
+              // Only include roles with at least 20% match
+              if (percentage >= 20) {
+                recommendedRoles.push({
+                  name: role,
+                  percentage: percentage
+                });
+              }
+            }
+          });
+          
+          // Sort roles by percentage (highest first)
+          recommendedRoles.sort((a, b) => b.percentage - a.percentage);
+          
+          // Add category as a recommended role if no other roles were found
+          if (recommendedRoles.length === 0) {
+            recommendedRoles.push({
+              name: category,
+              percentage: 70 // Default percentage for the category match
+            });
+          }
+          
+          // Set default values for missing fields
+          const yearsOfExperience = 0; // Hard to determine without AI
+          const phone = ""; // As requested previously
+          
+          // Prepare strings for database storage
+          const skillsString = skills.join(', ');
+          const projectsString = JSON.stringify(projects);
+          const recommendedRolesString = JSON.stringify(recommendedRoles);
+          
+          // Create aiAnalysis object with all necessary fields
+          aiAnalysis = {
+            category,
+            yearsOfExperience,
+            skills,
+            jobTitle: jobTitle || "Not specified",
+            professionalSummary,
+            collegeName,
+            email,
+            phone,
+            name,
+            projects,
+            recommendedRoles
+          };
+        }
+        
+        // Extract all fields from AI analysis
+        const category = aiAnalysis.category;
+        const yearsOfExperience = aiAnalysis.yearsOfExperience;
+        const jobTitle = aiAnalysis.jobTitle;
+        const skills = aiAnalysis.skills;
+        const professionalSummary = aiAnalysis.professionalSummary;
+        const collegeName = aiAnalysis.collegeName;
+        const email = aiAnalysis.email;
+        const phone = aiAnalysis.phone;
+        const name = aiAnalysis.name;
+        const projects = aiAnalysis.projects || [];
+        const recommendedRoles = aiAnalysis.recommendedRoles || [];
+        
+        // Create summary from AI analysis
+        const summary = professionalSummary;
+        
+        // Make sure recommendedRoles is properly structured before serializing
+        const validRecommendedRoles = Array.isArray(recommendedRoles) 
+          ? recommendedRoles.map(role => {
+              if (typeof role === 'string') {
+                return { name: role, percentage: 70 };
+              } else if (typeof role === 'object' && role !== null) {
+                return {
+                  name: role.name || 'Unknown Role',
+                  percentage: typeof role.percentage === 'number' ? role.percentage : 70
+                };
+              }
+              return { name: 'Unknown Role', percentage: 70 };
+            })
+          : [];
+
+        // Prepare data for storage
+        const skillsString = Array.isArray(skills) ? skills.join(', ') : '';
+        const projectsString = JSON.stringify(projects || []);
+        const recommendedRolesString = JSON.stringify(validRecommendedRoles);
+
+        // Save to database with all fields
+        try {
+          await connection.query(
+            `INSERT INTO cvs (
+              file_name, category, summary, years_of_experience, 
+              job_title, skills, professional_summary, college_name, 
+              email, phone, name, projects, recommended_roles
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              cv.fileName, category, summary, yearsOfExperience, 
+              jobTitle, skillsString, professionalSummary, collegeName, 
+              email, phone, name, projectsString, recommendedRolesString
+            ]
+          );
+        } catch (dbError) {
+          console.error(`Database error for ${cv.fileName}:`, dbError.message);
+        }
+
+        // Return enhanced data to frontend
+        categorized.push({
+          fileName: cv.fileName,
+          category,
+          summary,
+          yearsOfExperience,
+          jobTitle,
+          skills,
+          professionalSummary,
+          collegeName,
+          email,
+          phone,
+          name,
+          projects,
+          recommendedRoles: validRecommendedRoles
+        });
+      } catch (cvError) {
+        console.error(`Error processing CV ${cv.fileName}:`, cvError);
+        console.error("Error stack:", cvError.stack);
+        categorized.push({
+          fileName: cv.fileName || 'Unknown File',
+          category: "Error",
+          summary: `Processing failed: ${cvError.message}`,
+          yearsOfExperience: 0,
+          skills: [],
+          jobTitle: "Unknown",
+          professionalSummary: "Processing failed"
+        });
+      }
+    }
+
+    console.log("Returning response with categorized results:", categorized.length);
+    return NextResponse.json({ categorized });
+  } catch (error) {
+    console.error("Process CV API error:", error);
+    console.error("Stack trace:", error.stack);
+    return NextResponse.json({ 
+      error: `Failed to process CVs: ${error.message}` 
+    }, { status: 500 });
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error("Error releasing connection:", releaseError);
+      }
+    }
+  }
+}

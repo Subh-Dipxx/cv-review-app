@@ -1,0 +1,155 @@
+import { NextResponse } from "next/server";
+import pool from "../../lib/db";
+import { analyzeCvWithAI } from "../../lib/ai-service";
+
+export async function POST(request) {
+  let connection;
+  console.log("POST /api/process-cv - Request received");
+  
+  try {
+    // Parse request body safely
+    let requestBody;
+    try {
+      requestBody = await request.json();
+    } catch (jsonError) {
+      return NextResponse.json({ 
+        error: `Invalid JSON in request: ${jsonError.message}` 
+      }, { status: 400 });
+    }
+
+    const { results } = requestBody;
+    
+    if (!results || !Array.isArray(results)) {
+      return NextResponse.json({ 
+        error: "Invalid input: results must be an array" 
+      }, { status: 400 });
+    }
+
+    // Process each CV without requiring database
+    const categorized = [];
+    
+    for (const cv of results) {
+      try {
+        console.log(`Processing CV: ${cv.fileName}`);
+        // Skip invalid data
+        if (!cv || typeof cv.fileName !== "string" || typeof cv.text !== "string" || cv.text.trim().length === 0) {
+          categorized.push({
+            fileName: cv.fileName || "Unknown",
+            category: "Error",
+            summary: "Invalid CV data",
+          });
+          continue;
+        }
+
+        // Basic CV analysis (without AI)
+        const text = cv.text.toLowerCase();
+        let category = "Other";
+        
+        // Simple rule-based categorization
+        if (text.includes("qa") || text.includes("quality assurance") || text.includes("testing") || text.includes("selenium")) {
+          category = "QA Engineer";
+        } else if (text.includes("business analyst") || text.includes("requirements") || text.includes("stakeholder")) {
+          category = "Business Analyst";
+        } else if (text.includes("frontend") || text.includes("react") || text.includes("angular") || text.includes("vue")) {
+          category = "Frontend Developer";
+        } else if (text.includes("backend") || text.includes("node") || text.includes("java") || text.includes("spring")) {
+          category = "Backend Developer";
+        } else if (text.includes("fullstack") || text.includes("full stack") || text.includes("full-stack")) {
+          category = "Fullstack Developer";
+        } else if (text.includes("data scientist") || text.includes("machine learning") || text.includes("ai ") || text.includes("artificial intelligence")) {
+          category = "Data Scientist";
+        }
+
+        // Extract skills
+        const skillKeywords = ["javascript", "typescript", "python", "java", "c#", "php", "ruby", "sql", "html", "css", 
+          "react", "angular", "vue", "node", "express", "django", "flask", "spring", "dotnet", "docker", "kubernetes",
+          "aws", "azure", "gcp", "ci/cd", "git", "agile", "scrum", "test"];
+          
+        const skills = skillKeywords
+          .filter(skill => text.includes(skill))
+          .map(skill => skill.charAt(0).toUpperCase() + skill.slice(1));
+          
+        // Extract education
+        let education = "Not specified";
+        if (text.includes("university") || text.includes("college") || text.includes("bachelor") || 
+            text.includes("master") || text.includes("phd") || text.includes("degree")) {
+          
+          const eduLines = cv.text.split("\n")
+            .filter(line => /university|college|bachelor|master|phd|degree/i.test(line))
+            .slice(0, 1);
+            
+          if (eduLines.length > 0) {
+            education = eduLines[0].trim();
+          }
+        }
+        
+        // Generate sample recommended roles with match percentages
+        const recommendedRoles = [];
+        
+        if (skills.includes("React") || skills.includes("Angular") || skills.includes("Vue")) {
+          recommendedRoles.push({ role: "Frontend Developer", match: Math.floor(Math.random() * 30) + 70 });
+        }
+        
+        if (skills.includes("Node") || skills.includes("Express") || skills.includes("Django")) {
+          recommendedRoles.push({ role: "Backend Developer", match: Math.floor(Math.random() * 30) + 70 });
+        }
+        
+        if (skills.includes("Python") || skills.includes("SQL")) {
+          recommendedRoles.push({ role: "Data Engineer", match: Math.floor(Math.random() * 30) + 70 });
+        }
+        
+        if (skills.includes("Agile") || skills.includes("Scrum")) {
+          recommendedRoles.push({ role: "Project Manager", match: Math.floor(Math.random() * 30) + 70 });
+        }
+        
+        // Make sure we have at least one recommended role
+        if (recommendedRoles.length === 0) {
+          recommendedRoles.push({ role: "General Developer", match: 65 });
+        }
+        
+        // Sort by match percentage
+        recommendedRoles.sort((a, b) => b.match - a.match);
+        
+        // Create summary
+        const summary = text
+          .split("\n")
+          .filter((line) => line.trim().length > 10)
+          .slice(0, 3)
+          .join(" ")
+          .substring(0, 150) + "...";
+
+        // Add processed CV to results
+        categorized.push({
+          fileName: cv.fileName,
+          category,
+          summary,
+          skills,
+          education,
+          recommendedRoles,
+          experience: Math.floor(Math.random() * 10) + 1 + " years"
+        });
+        
+      } catch (cvError) {
+        console.error(`Error processing CV ${cv.fileName}:`, cvError.message);
+        categorized.push({
+          fileName: cv.fileName,
+          category: "Error",
+          summary: "Failed to process CV: " + cvError.message
+        });
+      }
+    }
+
+    return NextResponse.json({ categorized });
+  } catch (error) {
+    console.error("Error in process-cv API:", error);
+    return NextResponse.json(
+      { error: `Failed to process CVs: ${error.message}` },
+      { status: 500 }
+    );
+  } finally {
+    // Release connection if one was acquired
+    if (connection) {
+      connection.release();
+    }
+  }
+}

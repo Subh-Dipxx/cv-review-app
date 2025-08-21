@@ -52,54 +52,101 @@ function Page() {
 
     try {
       toast.loading("Parsing PDFs...", { id: "processing" });
+      console.log("Starting PDF parsing process...");
 
       const formData = new FormData();
-      files.forEach((file) => formData.append("files", file));
+      files.forEach((file) => {
+        console.log(`Adding file to FormData: ${file.name}, size: ${file.size} bytes`);
+        formData.append("files", file);
+      });
 
+      // Debug log before fetch
+      console.log("Sending request to /api/parse-cv...");
+      
+      const parseStartTime = Date.now();
       const parseResponse = await fetch("/api/parse-cv", {
         method: "POST",
         body: formData,
       });
+      const parseEndTime = Date.now();
+      
+      console.log(`Parse API responded in ${parseEndTime - parseStartTime}ms with status: ${parseResponse.status}`);
 
       let parseData;
       try {
         parseData = await parseResponse.json();
-      } catch {
+        console.log("Parse API response parsed successfully:", parseData);
+      } catch (parseError) {
+        console.error("Failed to parse JSON response from parse-cv:", parseError);
         throw new Error("The server returned an unexpected response. Please check your PDF files or contact support.");
       }
 
       if (!parseResponse.ok) {
+        console.error("Parse API error:", parseData?.error || parseResponse.status);
         throw new Error(parseData?.error || `Parse failed with status ${parseResponse.status}`);
       }
       if (parseData?.error) {
+        console.error("Parse API returned error:", parseData.error);
         throw new Error(parseData.error);
       }
 
+      console.log(`Successfully parsed ${parseData.results.length} files`);
       toast.loading("Categorizing CVs...", { id: "processing" });
 
+      // Debug log before fetch
+      console.log("Sending request to /api/process-cv...");
+      
+      const processStartTime = Date.now();
       const processResponse = await fetch("/api/process-cv", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ results: parseData.results }),
       });
+      const processEndTime = Date.now();
+      
+      console.log(`Process API responded in ${processEndTime - processStartTime}ms with status: ${processResponse.status}`);
 
       let processData;
       try {
         processData = await processResponse.json();
-      } catch {
+        console.log("Process API response parsed successfully:", processData);
+      } catch (processError) {
+        console.error("Failed to parse JSON response from process-cv:", processError);
         throw new Error("The server returned an unexpected response for process-cv.");
       }
 
       if (!processResponse.ok) {
-        throw new Error(processData.error || `Process failed with status ${processResponse.status}`);
+        console.error("Process API error:", processData?.error || processResponse.status);
+        throw new Error(processData?.error || `Process failed with status ${processResponse.status}`);
       }
-      if (processData.error) {
+      if (processData?.error) {
+        console.error("Process API returned error:", processData.error);
         throw new Error(processData.error);
       }
 
-      setResults(processData.categorized || []);
+      const categorized = processData.categorized || [];
+      
+      // Debug: Log the received data
+      console.log("Received categorized data:", categorized);
+      categorized.forEach((result, i) => {
+        console.log(`Result ${i + 1}:`, {
+          fileName: result.fileName,
+          email: result.email,
+          collegeName: result.collegeName,
+          name: result.name
+        });
+      });
+      
+      // Safety check for valid results
+      const validResults = categorized.filter(result => 
+        result && typeof result === 'object' && result.fileName
+      );
+      
+      setResults(validResults);
+      console.log(`Processing complete! ${validResults.length} files categorized`);
+      
       toast.success(
-        `Successfully processed ${processData.categorized?.length || 0} files!`,
+        `Successfully processed ${validResults.length} files!`,
         { id: "processing" }
       );
     } catch (error) {
@@ -173,17 +220,89 @@ function Page() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {results.map((result, index) => (
               <div key={index} className="border p-4 rounded-lg bg-white shadow-sm">
-                <h3 className="font-bold text-gray-800 truncate" title={result.fileName}>
-                  {result.fileName}
-                </h3>
-                <p className="mt-2">
+                {/* Name and File */}
+                <div className="flex justify-between items-start">
+                  <h3 className="font-bold text-gray-800 truncate" title={result.name || result.fileName}>
+                    {result.name || "Not specified"}
+                  </h3>
+                  <span className="text-xs text-gray-400">{result.fileName}</span>
+                </div>
+                
+                {/* Job Title and Category */}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
                   <span className="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm font-medium">
                     {result.category}
                   </span>
+                  {result.jobTitle && (
+                    <span className="text-gray-700 text-sm">
+                      {result.jobTitle}
+                    </span>
+                  )}
+                </div>
+                
+                {/* Experience */}
+                <p className="mt-2 text-sm text-gray-600">
+                  {result.yearsOfExperience > 0 ? 
+                    `${result.yearsOfExperience} year${result.yearsOfExperience !== 1 ? 's' : ''} experience` : 
+                    'No experience'}
                 </p>
-                <p className="mt-2 text-gray-600 text-sm line-clamp-3">
-                  {result.summary}
-                </p>
+                
+                {/* Contact Information */}
+                <div className="mt-3 space-y-1 text-sm">
+                  {result.email && (
+                    <p className="text-gray-600 flex items-center">
+                      <span className="font-medium mr-1">Email:</span> {result.email}
+                    </p>
+                  )}
+                  {result.collegeName && (
+                    <p className="text-gray-600 flex items-center">
+                      <span className="font-medium mr-1">Education:</span> {result.collegeName}
+                    </p>
+                  )}
+                </div>
+                
+                {/* Recommended Roles */}
+                {result.recommendedRoles && result.recommendedRoles.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs text-gray-500 font-medium">Recommended Roles:</p>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {result.recommendedRoles.map((role, i) => (
+                        <span key={i} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">
+                          {role}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Professional Summary */}
+                <div className="mt-3">
+                  <p className="text-xs text-gray-500 font-medium">Professional Summary:</p>
+                  <p className="text-gray-600 text-sm line-clamp-3">
+                    {result.professionalSummary || result.summary || "No summary available."}
+                  </p>
+                </div>
+                
+                {/* Skills */}
+                {result.skills && result.skills.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs text-gray-500 font-medium mb-1">Skills:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {result.skills.slice(0, 5).map((skill, i) => (
+                        <span key={i} className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">
+                          {skill}
+                        </span>
+                      ))}
+                      {result.skills.length > 5 && (
+                        <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">
+                          +{result.skills.length - 5} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Note: Projects section removed as requested */}
               </div>
             ))}
           </div>

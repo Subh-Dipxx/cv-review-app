@@ -1,0 +1,255 @@
+"use client";
+
+import { useState } from "react";
+import { useDropzone } from "react-dropzone";
+import toast, { Toaster } from "react-hot-toast";
+
+export default function HomePage() {
+  const [files, setFiles] = useState([]);
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const onDrop = (acceptedFiles) => {
+    const pdfFiles = acceptedFiles.filter((file) =>
+      file.type === "application/pdf"
+    );
+    
+    if (pdfFiles.length === 0) {
+      toast.error("Please select only PDF files!");
+      return;
+    }
+    
+    if (pdfFiles.length + files.length > 10) {
+      toast.error("You can upload a maximum of 10 PDFs!");
+      return;
+    }
+    
+    setFiles([...files, ...pdfFiles]);
+    toast.success(`${pdfFiles.length} PDF(s) uploaded successfully!`);
+  };
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: { "application/pdf": [".pdf"] },
+    maxSize: 5 * 1024 * 1024, // 5MB limit
+    multiple: true,
+  });
+
+  const removeFile = (index) => {
+    const newFiles = files.filter((_, i) => i !== index);
+    setFiles(newFiles);
+    toast.success("File removed successfully!");
+  };
+
+  const processCVs = async () => {
+    if (files.length === 0) {
+      toast.error("Please upload at least one PDF!");
+      return;
+    }
+
+    setLoading(true);
+    setResults([]);
+
+    try {
+      toast.loading("Parsing PDFs...", { id: "processing" });
+
+      const formData = new FormData();
+      files.forEach((file) => formData.append("files", file));
+
+      const parseResponse = await fetch("/api/parse-cv", {
+        method: "POST",
+        body: formData,
+      });
+
+      let parseData;
+      try {
+        parseData = await parseResponse.json();
+      } catch {
+        throw new Error("The server returned an unexpected response. Please check your PDF files or contact support.");
+      }
+
+      if (!parseResponse.ok) {
+        throw new Error(parseData?.error || `Parse failed with status ${parseResponse.status}`);
+      }
+      if (parseData?.error) {
+        throw new Error(parseData.error);
+      }
+
+      toast.loading("Categorizing CVs...", { id: "processing" });
+
+      const processResponse = await fetch("/api/process-cv", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ results: parseData.results }),
+      });
+
+      let processData;
+      try {
+        processData = await processResponse.json();
+      } catch {
+        throw new Error("The server returned an unexpected response for process-cv.");
+      }
+
+      if (!processResponse.ok) {
+        throw new Error(processData.error || `Process failed with status ${processResponse.status}`);
+      }
+      if (processData.error) {
+        throw new Error(processData.error);
+      }
+
+      setResults(processData.categorized || []);
+      toast.success(
+        `Successfully processed ${processData.categorized?.length || 0} files!`,
+        { id: "processing" }
+      );
+    } catch (error) {
+      console.error("CV processing error:", error);
+      toast.error(`Processing failed: ${error.message}`, { id: "processing" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-gray-50 p-4">
+      <Toaster position="top-right" />
+      
+      <div className="max-w-4xl mx-auto">
+        {/* Upload area */}
+        <div className="bg-white rounded-lg p-4 shadow-sm mb-6">
+          <div
+            {...getRootProps()}
+            className={`border-2 border-dashed p-6 rounded-lg text-center cursor-pointer transition-colors ${
+              isDragActive 
+                ? "border-blue-400 bg-blue-50" 
+                : "border-gray-300 hover:border-gray-400"
+            }`}
+          >
+            <input {...getInputProps()} />
+            <p className="text-gray-600">
+              {isDragActive
+                ? "Drop up to 10 PDFs here..."
+                : "Drag & drop up to 10 PDFs here, or click to select files"}
+            </p>
+            <p className="text-gray-400 text-sm mt-1">(Max 5MB per file)</p>
+          </div>
+
+          {/* File list */}
+          {files.length > 0 && (
+            <div className="mt-4">
+              <h3 className="text-lg font-medium mb-2 text-gray-700">
+                Uploaded Files ({files.length}/10)
+              </h3>
+              <ul>
+                {files.map((file, index) => (
+                  <li key={index} className="flex items-center text-sm text-gray-600 mb-1">
+                    <span>{file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+                    <button
+                      onClick={() => removeFile(index)}
+                      className="ml-2 text-red-500 hover:text-red-700"
+                      disabled={loading}
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={processCVs}
+                disabled={loading}
+                className="mt-3 bg-blue-500 text-white px-4 py-2 rounded disabled:bg-gray-400 hover:bg-blue-600 transition-colors"
+              >
+                {loading ? "Processing..." : "Process CVs"}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Results */}
+        {results.length > 0 && (
+          <div>
+            <h2 className="text-xl font-semibold mb-4 text-gray-800">
+              Results ({results.length} files processed)
+            </h2>
+            <div className="space-y-4">
+              {results.map((result, index) => (
+                <div key={index} className="bg-white rounded-lg shadow-sm p-5 border border-gray-200">
+                  <div className="flex justify-between">
+                    <div>
+                      <h3 className="font-semibold text-gray-800">
+                        {result.name || result.fileName.replace('.pdf', '')}
+                      </h3>
+                      <p className="text-blue-600">{result.category || 'Software Developer'}</p>
+                      <p className="text-gray-600 text-sm">
+                        {result.experience || 'Full Stack Developer'}
+                      </p>
+                      {result.email && (
+                        <p className="text-gray-600 text-sm">Email: {result.email}</p>
+                      )}
+                      {result.phone && (
+                        <p className="text-gray-600 text-sm">Phone: {result.phone}</p>
+                      )}
+                      {result.education && (
+                        <p className="text-gray-600 text-sm">Education: {result.education}</p>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-400">
+                      {result.fileName}
+                    </span>
+                  </div>
+
+                  {/* Recommended Roles */}
+                  {result.recommendedRoles && result.recommendedRoles.length > 0 && (
+                    <div className="mt-3">
+                      <h4 className="text-sm font-medium text-gray-700 mb-1">Recommended Roles</h4>
+                      <div className="flex flex-wrap gap-1">
+                        {result.recommendedRoles.map((role, roleIndex) => (
+                          <span
+                            key={roleIndex}
+                            className="inline-flex items-center px-2 py-0.5 rounded-md text-sm bg-green-50 text-green-700"
+                          >
+                            {role.role} {role.match && `(${role.match}%)`}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Professional Summary */}
+                  {result.summary && (
+                    <div className="mt-3">
+                      <h4 className="text-sm font-medium text-gray-700 mb-1">Professional Summary</h4>
+                      <p className="text-sm text-gray-600">{result.summary}</p>
+                    </div>
+                  )}
+
+                  {/* Skills */}
+                  {result.skills && result.skills.length > 0 && (
+                    <div className="mt-3">
+                      <h4 className="text-sm font-medium text-gray-700 mb-1">Skills</h4>
+                      <div className="flex flex-wrap gap-1">
+                        {result.skills.map((skill, skillIndex) => (
+                          <span
+                            key={skillIndex}
+                            className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded"
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                        {result.skills.length > 0 && (
+                          <span className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded">
+                            +4 more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}

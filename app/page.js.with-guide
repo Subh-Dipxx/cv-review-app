@@ -1,0 +1,329 @@
+"use client";
+
+import { useState } from "react";
+import { useDropzone } from "react-dropzone";
+import toast, { Toaster } from "react-hot-toast";
+import Link from "next/link";
+
+export default function HomePage() {
+  const [files, setFiles] = useState([]);
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [showGuide, setShowGuide] = useState(true);
+
+  const onDrop = (acceptedFiles) => {
+    const pdfFiles = acceptedFiles.filter((file) =>
+      file.type === "application/pdf"
+    );
+    
+    if (pdfFiles.length === 0) {
+      toast.error("Please select only PDF files!");
+      return;
+    }
+    
+    if (pdfFiles.length + files.length > 10) {
+      toast.error("You can upload a maximum of 10 PDFs!");
+      return;
+    }
+    
+    setFiles([...files, ...pdfFiles]);
+    toast.success(`${pdfFiles.length} PDF(s) uploaded successfully!`);
+  };
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: { "application/pdf": [".pdf"] },
+    maxSize: 5 * 1024 * 1024, // 5MB limit
+    multiple: true,
+  });
+
+  const removeFile = (index) => {
+    const newFiles = files.filter((_, i) => i !== index);
+    setFiles(newFiles);
+    toast.success("File removed successfully!");
+  };
+
+  const processCVs = async () => {
+    if (files.length === 0) {
+      toast.error("Please upload at least one PDF!");
+      return;
+    }
+
+    setLoading(true);
+    setResults([]);
+
+    try {
+      toast.loading("Parsing PDFs...", { id: "processing" });
+
+      const formData = new FormData();
+      files.forEach((file) => formData.append("files", file));
+
+      const parseResponse = await fetch("/api/parse-cv", {
+        method: "POST",
+        body: formData,
+      });
+
+      let parseData;
+      try {
+        parseData = await parseResponse.json();
+      } catch {
+        throw new Error("The server returned an unexpected response. Please check your PDF files or contact support.");
+      }
+
+      if (!parseResponse.ok) {
+        throw new Error(parseData?.error || `Parse failed with status ${parseResponse.status}`);
+      }
+      if (parseData?.error) {
+        throw new Error(parseData.error);
+      }
+
+      toast.loading("Categorizing CVs...", { id: "processing" });
+
+      const processResponse = await fetch("/api/process-cv", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ results: parseData.results }),
+      });
+
+      let processData;
+      try {
+        processData = await processResponse.json();
+      } catch {
+        throw new Error("The server returned an unexpected response for process-cv.");
+      }
+
+      if (!processResponse.ok) {
+        throw new Error(processData.error || `Process failed with status ${processResponse.status}`);
+      }
+      if (processData.error) {
+        throw new Error(processData.error);
+      }
+
+      setResults(processData.categorized || []);
+      toast.success(
+        `Successfully processed ${processData.categorized?.length || 0} files!`,
+        { id: "processing" }
+      );
+      setShowGuide(false);
+    } catch (error) {
+      console.error("CV processing error:", error);
+      toast.error(`Processing failed: ${error.message}`, { id: "processing" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-gray-50 p-4">
+      <Toaster position="top-right" />
+      
+      {/* User Guide - will show first time */}
+      {showGuide && (
+        <div className="max-w-4xl mx-auto mb-6 bg-blue-50 border border-blue-200 rounded-lg p-5 text-blue-800">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="font-bold text-lg flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+              Welcome to CV Review App - Your VIP Tour
+            </h2>
+            <button onClick={() => setShowGuide(false)} className="text-blue-700 hover:text-blue-900">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+          
+          <div className="space-y-4 text-sm">
+            <div>
+              <h3 className="font-semibold mb-1">🎯 What you're looking at:</h3>
+              <p>This is your CV Review App running locally. It's designed to take in PDF resumes, process them, and extract key details automatically.</p>
+            </div>
+            
+            <div>
+              <h3 className="font-semibold mb-1">💡 The VIP Breakdown:</h3>
+              <ol className="list-decimal list-inside space-y-2 pl-1">
+                <li>
+                  <span className="font-medium">File Upload Section</span>
+                  <p className="pl-6">At the top, you can drag & drop up to 10 PDFs (max 5MB each).</p>
+                </li>
+                <li>
+                  <span className="font-medium">The Spotlight Moment</span>
+                  <p className="pl-6">The "Process CVs" button is the "Go" switch — it tells your app to read the PDFs and pull out all the important info.</p>
+                </li>
+                <li>
+                  <span className="font-medium">The Results Section</span>
+                  <p className="pl-6">After processing, you'll see extracted details including:</p>
+                  <ul className="list-disc list-inside pl-8 text-blue-700">
+                    <li>Name and basic profile</li>
+                    <li>Professional title</li>
+                    <li>Experience details</li>
+                    <li>Contact information</li>
+                    <li>Education history</li>
+                    <li>Recommended roles based on profile</li>
+                    <li>Skills identified in the resume</li>
+                  </ul>
+                </li>
+                <li>
+                  <span className="font-medium">Extra Details</span>
+                  <p className="pl-6">Professional Summary is displayed so recruiters can get your elevator pitch instantly. Skills are tagged for easy job matching.</p>
+                </li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      <div className="max-w-4xl mx-auto">
+        {/* Upload area */}
+        <div className="bg-white rounded-lg p-4 shadow-sm mb-6">
+          <div
+            {...getRootProps()}
+            className={`border-2 border-dashed p-6 rounded-lg text-center cursor-pointer transition-colors ${
+              isDragActive 
+                ? "border-blue-400 bg-blue-50" 
+                : "border-gray-300 hover:border-gray-400"
+            }`}
+          >
+            <input {...getInputProps()} />
+            <p className="text-gray-600">
+              {isDragActive
+                ? "Drop up to 10 PDFs here..."
+                : "Drag & drop up to 10 PDFs here, or click to select files"}
+            </p>
+            <p className="text-gray-400 text-sm mt-1">(Max 5MB per file)</p>
+          </div>
+
+          {/* File list */}
+          {files.length > 0 && (
+            <div className="mt-4">
+              <h3 className="text-lg font-medium mb-2 text-gray-700">
+                Uploaded Files ({files.length}/10)
+              </h3>
+              <ul>
+                {files.map((file, index) => (
+                  <li key={index} className="flex items-center text-sm text-gray-600 mb-1">
+                    <span>{file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+                    <button
+                      onClick={() => removeFile(index)}
+                      className="ml-2 text-red-500 hover:text-red-700"
+                      disabled={loading}
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={processCVs}
+                disabled={loading}
+                className="mt-3 bg-blue-500 text-white px-4 py-2 rounded disabled:bg-gray-400 hover:bg-blue-600 transition-colors"
+              >
+                {loading ? "Processing..." : "Process CVs"}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Results */}
+        {results.length > 0 && (
+          <div className="mt-8 bg-gray-50 rounded-lg border border-gray-200 p-6 shadow-md">
+            <h2 className="text-xl font-semibold mb-4 text-gray-800 border-b pb-2">
+              Results ({results.length} files processed)
+            </h2>
+            <div className="space-y-6">
+              {results.map((result, index) => (
+                <div key={index} className="bg-white rounded-lg shadow-sm p-5 border border-gray-200 hover:shadow-lg transition-shadow duration-200">
+                  <div className="flex justify-between">
+                    <div>
+                      <h3 className="font-semibold text-gray-800 text-lg">
+                        {result.name || result.fileName.replace('.pdf', '')}
+                      </h3>
+                      <p className="text-blue-600 font-medium">{result.category || 'Software Developer'}</p>
+                      <p className="text-gray-600 text-sm mt-1">
+                        {result.experience || 'Full Stack Developer'}
+                      </p>
+                      {result.email && (
+                        <p className="text-gray-600 text-sm mt-2">Email: {result.email}</p>
+                      )}
+                      {result.phone && (
+                        <p className="text-gray-600 text-sm">Phone: {result.phone}</p>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded">
+                      {result.fileName}
+                    </span>
+                  </div>
+
+                  {/* Education */}
+                  {result.education && (
+                    <div className="mt-4 p-3 bg-gray-50 rounded-md border border-gray-100">
+                      <h4 className="text-sm font-medium text-gray-700 mb-2">Education</h4>
+                      <p className="text-sm text-gray-600">{result.education}</p>
+                    </div>
+                  )}
+                  
+                  {/* Recommended Roles */}
+                  {result.recommendedRoles && result.recommendedRoles.length > 0 && (
+                    <div className="mt-4 p-3 bg-gray-50 rounded-md border border-gray-100">
+                      <h4 className="text-sm font-medium text-gray-700 mb-2">Recommended Roles</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {result.recommendedRoles.map((role, roleIndex) => (
+                          <span
+                            key={roleIndex}
+                            className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-green-50 text-green-700 border border-green-100"
+                          >
+                            {role.role} {role.match && `(${role.match}%)`}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Professional Summary */}
+                  {result.summary && (
+                    <div className="mt-4 p-3 bg-gray-50 rounded-md border border-gray-100">
+                      <h4 className="text-sm font-medium text-gray-700 mb-2">Professional Summary</h4>
+                      <p className="text-sm text-gray-600 whitespace-pre-line">{result.summary}</p>
+                    </div>
+                  )}
+
+                  {/* Skills */}
+                  {result.skills && result.skills.length > 0 && (
+                    <div className="mt-4 p-3 bg-gray-50 rounded-md border border-gray-100">
+                      <h4 className="text-sm font-medium text-gray-700 mb-2">Skills</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {result.skills.map((skill, skillIndex) => (
+                          <span
+                            key={skillIndex}
+                            className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-50 text-blue-700 border border-blue-100"
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                        {result.skills.length > 0 && (
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-gray-100 text-gray-700 border border-gray-200">
+                            +4 more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Footer with information */}
+      <div className="max-w-4xl mx-auto mt-8 text-center text-sm text-gray-500">
+        <p>CV Review App - Powered by AI | © 2025</p>
+        <div className="mt-2 flex justify-center space-x-4">
+          <Link href="/summaries" className="text-blue-600 hover:text-blue-800">View Summaries</Link>
+          <Link href="/debug" className="text-blue-600 hover:text-blue-800">Debug Tools</Link>
+        </div>
+      </div>
+    </main>
+  );
+}

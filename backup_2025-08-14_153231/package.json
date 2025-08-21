@@ -1,0 +1,47 @@
+{
+    "name":  "cv-review-app",
+    "version":  "0.1.0",
+    "private":  true,
+    "scripts":  {
+                    "dev":  "next dev",
+                    "build":  "next build",
+                    "start":  "next start",
+                    "lint":  "next lint",
+                    "dev:check":  "node pre-start-check.js \u0026\u0026 next dev",
+                    "dev:safe":  "node pre-start-check.js \u0026\u0026 next dev --no-experimental",
+                    "dev:debug":  "next dev --inspect"
+                },
+    "dependencies":  {
+                         "mysql2":  "^3.6.5",
+                         "next":  "13.4.19",
+                         "openai":  "^4.7.0",
+                         "pdf-parse":  "^1.1.1",
+                         "react":  "18.2.0",
+                         "react-dom":  "18.2.0",
+                         "react-dropzone":  "^14.3.8",
+                         "react-hot-toast":  "^2.4.0"
+                     },
+    "devDependencies":  {
+                            "@eslint/eslintrc":  "^2.0.0",
+                            "eslint":  "^8.50.0",
+                            "eslint-config-next":  "13.4.19",
+                            "tailwindcss":  "^3.3.3",
+                            "postcss":  "^8.4.31",
+                            "autoprefixer":  "^10.4.16"
+                        },
+    "description":  "An AI-powered CV categorization and analysis tool built with Next.js, MySQL, and PDF parsing capabilities.",
+    "main":  "next.config.js",
+    "repository":  {
+                       "type":  "git",
+                       "url":  "git+https://github.com/Subh-Dipxx/cv-review-app.git"
+                   },
+    "keywords":  [
+
+                 ],
+    "author":  "",
+    "license":  "ISC",
+    "bugs":  {
+                 "url":  "https://github.com/Subh-Dipxx/cv-review-app/issues"
+             },
+    "homepage":  "https://github.com/Subh-Dipxx/cv-review-app#readme"
+}
