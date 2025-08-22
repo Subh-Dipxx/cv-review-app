@@ -1,6 +1,6 @@
 "use client";
 
-import { AuthProvider } from "../context";
+import { AuthProvider } from "../context/AuthContext";
 import Navigation from "./Navigation";
 import SessionManager from "./SessionManager";
 
@@ -17,4 +17,4 @@ export default function ClientLayout({ children }) {
     </AuthProvider>
   );
 }
-}
+

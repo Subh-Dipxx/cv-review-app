@@ -1,6 +1,6 @@
 "use client";
 
-import { AuthProvider } from "../context";
+import { AuthProvider } from "../context/AuthContext";
 import Navigation from "./Navigation";
 
 // Client wrapper with Navigation added
@@ -16,4 +16,4 @@ export default function ClientWrapper({ children }) {
     </AuthProvider>
   );
 }
-}
+

@@ -1,66 +1,11 @@
-// import { NextResponse } from "next/server";
-
-// export async function POST(request) {
-//   try {
-//     const { results } = await request.json();
-//     if (!results || !Array.isArray(results)) {
-//       console.error("Invalid input received:", results);
-//       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
-//     }
-
-//     const categorized = results.map((cv, index) => {
-//       try {
-//         const text = cv.text.toLowerCase();
-//         let category = "Other";
-//         if (text.includes("qa") || text.includes("testing") || text.includes("selenium")) {
-//           category = "QA Engineer";
-//         } else if (
-//           text.includes("business analyst") ||
-//           text.includes("requirements") ||
-//           text.includes("stakeholder")
-//         ) {
-//           category = "BA Engineer";
-//         }
-
-//         const summary = text
-//           .split("\n")
-//           .filter((line) => line.trim().length > 10)
-//           .slice(0, 3)
-//           .join(" ")
-//           .substring(0, 150) + "...";
-
-//         return {
-//           fileName: cv.fileName,
-//           category,
-//           summary,
-//         };
-//       } catch (cvError) {
-//         console.error(`Error processing CV ${cv.fileName}:`, cvError.message);
-//         return {
-//           fileName: cv.fileName,
-//           category: "Error",
-//           summary: "Failed to process CV",
-//         };
-//       }
-//     });
-
-//     return NextResponse.json({ categorized });
-//   } catch (error) {
-//     console.error("Error in process-cv API:", error.message);
-//     return NextResponse.json(
-//       { error: `Failed to process CVs: ${error.message}` },
-//       { status: 500 }
-//     );
-//   }
-// }
-
-
 import { NextResponse } from "next/server";
 import pool from "../../lib/db";
 import { analyzeCvWithAI } from "../../lib/ai-service";
 
 export async function POST(request) {
   let connection;
+  console.log("POST /api/process-cv - Request received");
+  
   try {
     // Parse request body safely
     let requestBody;
@@ -80,42 +25,12 @@ export async function POST(request) {
       }, { status: 400 });
     }
 
-    // Get database connection with error handling
-    try {
-      connection = await pool.getConnection();
-    } catch (dbError) {
-      console.error("Database connection error:", dbError);
-      return NextResponse.json({ 
-        error: `Database connection error: ${dbError.message}` 
-      }, { status: 500 });
-    }
-
-    // Ensure table exists with new fields
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS cvs (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        file_name VARCHAR(255) NOT NULL,
-        category VARCHAR(100) NOT NULL,
-        summary TEXT,
-        years_of_experience INT DEFAULT 0,
-        job_title VARCHAR(255),
-        skills TEXT,
-        professional_summary TEXT,
-        college_name VARCHAR(255),
-        email VARCHAR(255),
-        phone VARCHAR(50),
-        name VARCHAR(255),
-        projects TEXT,
-        recommended_roles TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Process each CV
+    // Process each CV without requiring database
     const categorized = [];
     
     for (const cv of results) {
       try {
+        console.log(`Processing CV: ${cv.fileName}`);
         // Skip invalid data
         if (!cv || typeof cv.fileName !== "string" || typeof cv.text !== "string" || cv.text.trim().length === 0) {
           categorized.push({
@@ -126,336 +41,227 @@ export async function POST(request) {
           continue;
         }
 
-        // Check if OpenAI API key is configured properly
-        const apiKeyConfigured = process.env.OPENAI_API_KEY && 
-                               process.env.OPENAI_API_KEY !== "your-actual-api-key-here" && 
-                               process.env.OPENAI_API_KEY.startsWith("sk-");
-
-        // Use AI to analyze the CV only if API key is configured
-        let aiAnalysis;
-        let aiError = null;
-        if (apiKeyConfigured) {
-          try {
-            aiAnalysis = await analyzeCvWithAI(cv.text);
-            console.log("AI analysis successful for:", cv.fileName);
-          } catch (error) {
-            aiError = error;
-            console.error("AI analysis failed:", error.message);
-            
-            // Check if it's a quota exceeded error
-            const isQuotaError = error.message.includes("429") || 
-                               error.message.includes("quota") || 
-                               error.message.includes("rate limit");
-            
-            if (isQuotaError) {
-              console.warn("OpenAI API quota exceeded - switching to basic analysis");
-              aiAnalysis = null;
-            } else {
-              console.error("Other AI error:", error);
-              aiAnalysis = null;
-            }
-          }
-        } else {
-          console.log("OpenAI API key not properly configured, using basic analysis");
-          aiAnalysis = null;
+        // Basic CV analysis (without AI)
+        const text = cv.text.toLowerCase();
+        let category = "Other";
+        
+        // Simple rule-based categorization
+        if (text.includes("qa") || text.includes("quality assurance") || text.includes("testing") || text.includes("selenium")) {
+          category = "QA Engineer";
+        } else if (text.includes("business analyst") || text.includes("requirements") || text.includes("stakeholder")) {
+          category = "Business Analyst";
+        } else if (text.includes("frontend") || text.includes("react") || text.includes("angular") || text.includes("vue")) {
+          category = "Frontend Developer";
+        } else if (text.includes("backend") || text.includes("node") || text.includes("java") || text.includes("spring")) {
+          category = "Backend Developer";
+        } else if (text.includes("fullstack") || text.includes("full stack") || text.includes("full-stack")) {
+          category = "Fullstack Developer";
+        } else if (text.includes("data scientist") || text.includes("machine learning") || text.includes("ai ") || text.includes("artificial intelligence")) {
+          category = "Data Scientist";
         }
 
-        // If AI analysis failed or was skipped, use basic analysis
-        if (!aiAnalysis || !aiAnalysis.professionalSummary) {
-          const text = cv.text.toLowerCase();
-          
-          // Don't use a generic prefix
-          let summaryPrefix = "";
-          
-          // Extract more skills with keyword detection
-          const skillKeywords = [
-            'javascript', 'python', 'java', 'html', 'css', 'react', 'angular', 'vue', 
-            'node', 'express', 'mongodb', 'sql', 'nosql', 'aws', 'azure', 'git', 
-            'docker', 'kubernetes', 'agile', 'scrum', 'rest', 'api', 'testing', 
-            'automation', 'ci/cd', 'mobile', 'android', 'ios', 'flutter', 'react native'
-          ];
-          
-          const skills = [];
-          skillKeywords.forEach(skill => {
-            if (text.includes(skill)) {
-              skills.push(skill.charAt(0).toUpperCase() + skill.slice(1));
-            }
-          });
-          
-          // Extract email with more inclusive regex
-          const emailPattern = /[A-Za-z0-9._%+-]*[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
-          const emailMatches = cv.text.match(emailPattern);
-          let email = "";
-          
-          if (emailMatches && emailMatches.length > 0) {
-            // Take the first valid email found
-            email = emailMatches[0];
-            
-            // Only clean if email starts with many digits (like your case)
-            if (/^\d{10,}/.test(email)) {
-              // For emails like "7029193205guharoysubhadip2@gmail.com"
-              // Extract just the part after the phone number
-              const emailParts = email.match(/([a-zA-Z][a-zA-Z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/);
-              if (emailParts) {
-                email = emailParts[1];
-              }
-            }
+        // Extract name from CV
+        let name = "Not specified";
+        const textLines = cv.text.split('\n');
+        
+        // Try to find name from first few lines (usually at the top)
+        for (let i = 0; i < Math.min(5, textLines.length); i++) {
+          const line = textLines[i].trim();
+          if (line.length > 2 && line.length < 50 && 
+              /^[A-Z][a-zA-Z\s\.]+$/.test(line) && 
+              !line.toLowerCase().includes('resume') && 
+              !line.toLowerCase().includes('cv') &&
+              !line.toLowerCase().includes('curriculum') &&
+              !line.toLowerCase().includes('email') &&
+              !line.toLowerCase().includes('phone') &&
+              !line.includes('@')) {
+            name = line;
+            break;
           }
+        }
+
+        // Extract email
+        let email = "";
+        const emailMatch = cv.text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+        if (emailMatch) {
+          email = emailMatch[0];
+        }
+
+        // Extract phone number (improved to avoid email conflicts)
+        let phoneNumber = "";
+        const phonePatterns = [
+          /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g,
+          /(?:\+91|91)?[-.\s]?\d{5}[-.\s]?\d{5}\b/g,
+          /(?:\+?\d{1,3}[-.\s]?)?\d{10}\b/g
+        ];
+        
+        for (const line of textLines) {
+          // Skip lines that contain @ symbol (likely email lines)
+          if (line.includes('@')) continue;
           
-          // Try to extract name - look for common name patterns
-          let name = "";
-          const nameLines = cv.text.split('\n').slice(0, 5); // Usually name is at the top
-          for (const line of nameLines) {
-            const trimmedLine = line.trim();
-            // Look for standalone lines with 2-3 words that might be names
-            if (trimmedLine && 
-                trimmedLine.split(' ').length >= 2 && 
-                trimmedLine.split(' ').length <= 4 &&
-                trimmedLine.length < 40 &&
-                !/[0-9@]/.test(trimmedLine)) { // No numbers or @ signs in names
-              name = trimmedLine;
-              break;
-            }
-          }
-          
-          // Extract college name more effectively
-          const educationKeywords = [
-            'university', 'college', 'institute', 'school', 'academy',
-            'bachelor', 'master', 'phd', 'degree', 'b.tech', 'b.e', 'm.tech', 'mba', 'b.sc', 'm.sc'
-          ];
-          
-          // Keywords to avoid when extracting education
-          const avoidKeywords = [
-            'objective', 'summary', 'profile', 'experience', 'skills', 
-            'projects', 'certification', 'contact', 'address', 'phone', 'email'
-          ];
-          
-          let collegeName = "";
-          const lines = cv.text.split('\n');
-          
-          // Look for lines containing education keywords
-          for (const line of lines) {
-            const lowerLine = line.toLowerCase().trim();
-            
-            // Skip if line contains words that indicate it's not about education
-            if (avoidKeywords.some(keyword => lowerLine.includes(keyword))) {
-              continue;
-            }
-            
-            if (educationKeywords.some(keyword => lowerLine.includes(keyword))) {
-              // Clean up the line
-              collegeName = line.trim()
-                .replace(/^[•\-\*\s]+/, '') // Remove bullet points at start
-                .replace(/^\d+\.\s*/, '') // Remove numbering
-                .replace(/\d{1,2}\/\d{4}.*$/, '') // Remove dates like 8/2022
-                .replace(/\d{1,2}[-–]\d{4}.*$/, '') // Remove dates like 8-2022
-                .replace(/\s+\d{4}(\s+[-–]\s+|\s+to\s+|\s+[-–]\s+present).*$/i, '') // Remove year ranges
-                .replace(/\(.*?\)/g, '') // Remove anything in parentheses
-                .replace(/\s+day$/i, '') // Remove trailing "day"
-                .replace(/\s+present$/i, '') // Remove trailing "present"
-                .replace(/\s+engineering\s+stratford$/i, '') // Remove specific text
-                .trim();
-              
-              // Only set if we have something substantial
-              if (collegeName && collegeName.length > 5) {
+          for (const pattern of phonePatterns) {
+            const phoneMatches = line.match(pattern);
+            if (phoneMatches && phoneMatches.length > 0) {
+              const phone = phoneMatches[0].trim();
+              // Additional check to ensure it's not an email or other data
+              if (!phone.includes('@') && !phone.includes('.com') && !phone.includes('.in')) {
+                phoneNumber = phone;
                 break;
               }
             }
           }
-          
-          // Debug logging - moved after all variables are defined
-          console.log(`For ${cv.fileName}:`);
-          console.log(`  Email found: "${email}"`);
-          console.log(`  College name: "${collegeName}"`);
-          console.log(`  Name: "${name}"`);
-          
-          // Try to extract job title
-          let jobTitle = "";
-          const jobTitles = [
-            'software developer', 'software engineer', 'web developer',
-            'frontend developer', 'backend developer', 'full stack developer',
-            'qa engineer', 'quality assurance', 'business analyst',
-            'data analyst', 'data scientist', 'project manager'
-          ];
-          
-          for (const title of jobTitles) {
-            if (text.includes(title)) {
-              jobTitle = title.split(' ')
-                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-                .join(' ');
+          if (phoneNumber) break;
+        }
+
+        // Extract college/university name
+        let collegeName = "Not specified";
+        const collegePatterns = [
+          /university\s+of\s+[a-zA-Z\s]+/gi,
+          /[a-zA-Z\s]+\s+university/gi,
+          /[a-zA-Z\s]+\s+college/gi,
+          /college\s+of\s+[a-zA-Z\s]+/gi,
+          /[a-zA-Z\s]+\s+institute\s+of\s+technology/gi,
+          /[a-zA-Z\s]+\s+technical\s+university/gi
+        ];
+        
+        for (const pattern of collegePatterns) {
+          const matches = cv.text.match(pattern);
+          if (matches && matches.length > 0) {
+            collegeName = matches[0].trim();
+            break;
+          }
+        }
+
+        // Extract years of experience
+        let yearsOfExperience = 0;
+        const experiencePatterns = [
+          /(\d+)\+?\s*years?\s+of\s+experience/gi,
+          /(\d+)\+?\s*years?\s+experience/gi,
+          /experience\s*:?\s*(\d+)\+?\s*years?/gi,
+          /(\d+)\+?\s*years?\s+in/gi,
+          /(\d+)\+?\s*yr?s?\s+exp/gi
+        ];
+        
+        for (const pattern of experiencePatterns) {
+          const matches = cv.text.match(pattern);
+          if (matches && matches.length > 0) {
+            const match = matches[0];
+            const numbers = match.match(/\d+/);
+            if (numbers) {
+              yearsOfExperience = parseInt(numbers[0]);
               break;
             }
           }
-          
-          // Simple categorization
-          let category = "Other";
-          if (text.includes("qa") || text.includes("testing")) category = "QA Engineer";
-          else if (text.includes("developer") || text.includes("programming") || 
-                  text.includes("javascript") || text.includes("java") || 
-                  text.includes("python") || text.includes("software engineer")) category = "Software Developer";
-          else if (text.includes("business analyst")) category = "BA Engineer";
-          
-          // Create a proper professional summary from the text
-          const bestSentences = cv.text
-            .split(/[.!?]/)
-            .filter(sentence => sentence.trim().length > 15 && sentence.trim().length < 150)
-            .slice(0, 3);
-            
-          let professionalSummary = bestSentences.join('. ');
-          if (!professionalSummary) {
-            // Fallback summary if no good sentences found
-            professionalSummary = `Professional`;
-            if (collegeName) {
-              professionalSummary += ` with education from ${collegeName}`;
+        }
+        
+        // If no specific experience found, try to infer from graduation year
+        if (yearsOfExperience === 0) {
+          const currentYear = new Date().getFullYear();
+          const yearMatches = cv.text.match(/20\d{2}/g);
+          if (yearMatches && yearMatches.length > 0) {
+            const years = yearMatches.map(y => parseInt(y)).sort((a, b) => b - a);
+            // Assume earliest year might be graduation year
+            const earliestYear = Math.min(...years);
+            if (earliestYear >= 2010 && earliestYear <= currentYear - 1) {
+              yearsOfExperience = Math.max(0, currentYear - earliestYear - 1);
             }
           }
-          
-          // Make sure summary has content
-          const summary = professionalSummary || `Resume for ${cv.fileName}`;
-          
-          // Simple project extraction
-          const projectKeywords = ["project", "developed", "created", "built", "implemented"];
-          const projectSentences = cv.text.split(/[.!?]/)
-            .filter(sentence => 
-              projectKeywords.some(keyword => 
-                sentence.toLowerCase().includes(keyword)
-              )
-            ).slice(0, 3);
-          
-          const projects = projectSentences.map(sentence => ({
-            name: sentence.trim().split(" ").slice(0, 4).join(" ") + "...",
-            description: sentence.trim()
-          }));
-          
-          // Generate recommended roles based on keywords
-          const recommendedRoles = [];
-          
-          if (text.includes("frontend") || text.includes("react") || text.includes("vue") || text.includes("angular")) {
-            recommendedRoles.push("Frontend Developer");
-          }
-          if (text.includes("backend") || text.includes("node") || text.includes("express") || text.includes("api")) {
-            recommendedRoles.push("Backend Developer");
-          }
-          if (text.includes("mobile") || text.includes("android") || text.includes("ios") || text.includes("flutter")) {
-            recommendedRoles.push("Mobile Developer");
-          }
-          if (text.includes("data") || text.includes("analysis") || text.includes("analytics")) {
-            recommendedRoles.push("Data Analyst");
-          }
-          if (text.includes("test") || text.includes("qa") || text.includes("quality")) {
-            recommendedRoles.push("QA Engineer");
-          }
-          
-          // Default recommended role based on category
-          if (recommendedRoles.length === 0) {
-            recommendedRoles.push(category);
-          }
-          
-          aiAnalysis = {
-            category: category || (jobTitle ? jobTitle.split(' ')[0] + " Professional" : "Other"),
-            yearsOfExperience: 0, // Hard to determine without AI
-            skills: skills,
-            jobTitle: jobTitle || "Not specified",
-            professionalSummary: professionalSummary, // Make sure this is defined
-            collegeName: collegeName,
-            email: email,
-            phone: "", // As requested previously
-            name: name,
-            projects: projects,
-            recommendedRoles: recommendedRoles
-          };
-        }
-        
-        // Extract all fields from AI analysis
-        const category = aiAnalysis.category;
-        const yearsOfExperience = aiAnalysis.yearsOfExperience;
-        const jobTitle = aiAnalysis.jobTitle;
-        const skills = aiAnalysis.skills;
-        const professionalSummary = aiAnalysis.professionalSummary;
-        const collegeName = aiAnalysis.collegeName;
-        const email = aiAnalysis.email;
-        const phone = aiAnalysis.phone;
-        const name = aiAnalysis.name;
-        const projects = aiAnalysis.projects || [];
-        const recommendedRoles = aiAnalysis.recommendedRoles || [];
-        
-        // Create summary from AI analysis
-        const summary = professionalSummary;
-        
-        // Prepare data for storage
-        const skillsString = Array.isArray(skills) ? skills.join(', ') : '';
-        const projectsString = JSON.stringify(projects);
-        const recommendedRolesString = Array.isArray(recommendedRoles) ? recommendedRoles.join(', ') : '';
-
-        // Save to database with all fields
-        try {
-          await connection.query(
-            `INSERT INTO cvs (
-              file_name, category, summary, years_of_experience, 
-              job_title, skills, professional_summary, college_name, 
-              email, phone, name, projects, recommended_roles
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              cv.fileName, category, summary, yearsOfExperience, 
-              jobTitle, skillsString, professionalSummary, collegeName, 
-              email, phone, name, projectsString, recommendedRolesString
-            ]
-          );
-        } catch (dbError) {
-          console.error(`Database error for ${cv.fileName}:`, dbError.message);
         }
 
-        // Return enhanced data to frontend
-        const resultData = {
+        // Extract skills
+        const skillKeywords = ["javascript", "typescript", "python", "java", "c#", "php", "ruby", "sql", "html", "css", 
+          "react", "angular", "vue", "node", "express", "django", "flask", "spring", "dotnet", "docker", "kubernetes",
+          "aws", "azure", "gcp", "ci/cd", "git", "agile", "scrum", "test"];
+          
+        const skills = skillKeywords
+          .filter(skill => text.includes(skill))
+          .map(skill => skill.charAt(0).toUpperCase() + skill.slice(1));
+          
+        // Extract education
+        let education = "Not specified";
+        if (text.includes("university") || text.includes("college") || text.includes("bachelor") || 
+            text.includes("master") || text.includes("phd") || text.includes("degree")) {
+          
+          const eduLines = cv.text.split("\n")
+            .filter(line => /university|college|bachelor|master|phd|degree/i.test(line))
+            .slice(0, 1);
+            
+          if (eduLines.length > 0) {
+            education = eduLines[0].trim();
+          }
+        }
+        
+        // Generate sample recommended roles with match percentages
+        const recommendedRoles = [];
+        
+        if (skills.includes("React") || skills.includes("Angular") || skills.includes("Vue")) {
+          recommendedRoles.push({ role: "Frontend Developer", match: Math.floor(Math.random() * 30) + 70 });
+        }
+        
+        if (skills.includes("Node") || skills.includes("Express") || skills.includes("Django")) {
+          recommendedRoles.push({ role: "Backend Developer", match: Math.floor(Math.random() * 30) + 70 });
+        }
+        
+        if (skills.includes("Python") || skills.includes("SQL")) {
+          recommendedRoles.push({ role: "Data Engineer", match: Math.floor(Math.random() * 30) + 70 });
+        }
+        
+        if (skills.includes("Agile") || skills.includes("Scrum")) {
+          recommendedRoles.push({ role: "Project Manager", match: Math.floor(Math.random() * 30) + 70 });
+        }
+        
+        // Make sure we have at least one recommended role
+        if (recommendedRoles.length === 0) {
+          recommendedRoles.push({ role: "General Developer", match: 65 });
+        }
+        
+        // Sort by match percentage
+        recommendedRoles.sort((a, b) => b.match - a.match);
+        
+        // Create summary
+        const summary = text
+          .split("\n")
+          .filter((line) => line.trim().length > 10)
+          .slice(0, 3)
+          .join(" ")
+          .substring(0, 150) + "...";
+
+        // Add processed CV to results
+        categorized.push({
           fileName: cv.fileName,
+          name: name,
+          email: email,
+          phoneNumber: phoneNumber,
+          collegeName: collegeName,
           category,
           summary,
-          yearsOfExperience,
-          jobTitle,
           skills,
-          professionalSummary,
-          collegeName,
-          email,
-          phone,
-          name,
-          projects,
-          recommendedRoles
-        };
-        
-        console.log(`Returning data for ${cv.fileName}:`, {
-          email: resultData.email,
-          collegeName: resultData.collegeName,
-          name: resultData.name
+          education,
+          recommendedRoles,
+          yearsOfExperience: yearsOfExperience
         });
         
-        categorized.push(resultData);
       } catch (cvError) {
         console.error(`Error processing CV ${cv.fileName}:`, cvError.message);
         categorized.push({
-          fileName: cv.fileName || 'Unknown File',
+          fileName: cv.fileName,
           category: "Error",
-          summary: `Processing failed: ${cvError.message}`,
-          yearsOfExperience: 0,
-          skills: [],
-          jobTitle: "Unknown",
-          professionalSummary: "Processing failed"
+          summary: "Failed to process CV: " + cvError.message
         });
       }
     }
 
     return NextResponse.json({ categorized });
   } catch (error) {
-    console.error("Process CV API error:", error);
-    return NextResponse.json({ 
-      error: `Failed to process CVs: ${error.message}` 
-    }, { status: 500 });
+    console.error("Error in process-cv API:", error);
+    return NextResponse.json(
+      { error: `Failed to process CVs: ${error.message}` },
+      { status: 500 }
+    );
   } finally {
+    // Release connection if one was acquired
     if (connection) {
-      try {
-        connection.release();
-      } catch (releaseError) {
-        console.error("Error releasing connection:", releaseError);
-      }
+      connection.release();
     }
   }
 }
