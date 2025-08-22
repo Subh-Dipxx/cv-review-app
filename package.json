@@ -12,6 +12,7 @@
         "@clerk/nextjs": "^6.31.4",
         "cookies-next": "4.1.0",
         "dotenv": "17.2.1",
+        "geist": "^1.4.2",
         "mysql2": "3.6.5",
         "next": "^14.2.25",
         "openai": "4.7.0",

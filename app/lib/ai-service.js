@@ -3,27 +3,14 @@ import OpenAI from 'openai';
 // Initialize OpenAI client with proper error handling
 let openai;
 try {
-  // Ensure API key is properly formatted
+  // Strip quotes if they exist in the API key
   const apiKey = process.env.OPENAI_API_KEY ? 
     process.env.OPENAI_API_KEY.replace(/^['"]|['"]$/g, '') : '';
   
-  if (!apiKey) {
-    console.warn("WARNING: OpenAI API key is not configured. AI analysis will be skipped.");
-  } else {
-    // Handle both v3 and v4 OpenAI SDK versions
-    try {
-      // Try V4 format first
-      openai = new OpenAI({
-        apiKey: apiKey,
-      });
-      console.log("OpenAI client initialized successfully with V4 SDK");
-    } catch (v4Error) {
-      // Fallback to V3 format if available
-      console.warn("Failed to initialize with V4 SDK, trying V3 format:", v4Error.message);
-      openai = new OpenAI(apiKey);
-      console.log("OpenAI client initialized successfully with V3 SDK");
-    }
-  }
+  openai = new OpenAI({
+    apiKey: apiKey,
+  });
+  console.log("OpenAI client initialized successfully");
 } catch (error) {
   console.error("Failed to initialize OpenAI client:", error);
   openai = null;
@@ -87,73 +74,29 @@ export async function analyzeCvWithAI(cvText) {
     try {
       // Check if OpenAI client is properly initialized
       if (!openai || !openai.chat) {
-        console.error("OpenAI client not properly initialized or missing 'chat' property");
-        console.log("OpenAI object:", JSON.stringify(Object.keys(openai || {})));
+        console.error("OpenAI client not properly initialized");
         return getDefaultAnalysis("OpenAI client configuration error");
       }
       
-      // Log OpenAI version information for debugging
-      console.log("Attempting to use OpenAI version:", OpenAI.version || "unknown");
-      
-      // Determine which API format to use based on available methods
-      let response;
-      // Check if we have V4 format (chat.completions.create)
-      if (openai.chat && typeof openai.chat.completions?.create === 'function') {
-        console.log("Using OpenAI V4 API format");
-        response = await openai.chat.completions.create({
-          model: 'gpt-3.5-turbo',
-          messages: [
-            { role: 'system', content: 'You are an AI assistant that analyzes resumes and CVs.' },
-            { role: 'user', content: prompt }
-          ],
-          temperature: 0.2,
-          max_tokens: 800,
-          response_format: { type: 'json_object' }
-        });
-      } 
-      // Check if we have V3 format (createChatCompletion)
-      else if (typeof openai.createChatCompletion === 'function') {
-        console.log("Using OpenAI V3 API format");
-        response = await openai.createChatCompletion({
-          model: 'gpt-3.5-turbo',
-          messages: [
-            { role: 'system', content: 'You are an AI assistant that analyzes resumes and CVs.' },
-            { role: 'user', content: prompt }
-          ],
-          temperature: 0.2,
-          max_tokens: 800
-        });
-      } 
-      // Fallback for other API versions
-      else {
-        console.log("Using legacy OpenAI API format");
-        response = await openai.completions.create({
-          model: 'text-davinci-003', // Fallback to older model
-          prompt: `Analyze the following CV: ${limitedText.substring(0, 2000)}`,
-          temperature: 0.3,
-          max_tokens: 500
-        });
-      }
+      const response = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: 'You are an AI assistant that analyzes resumes and CVs.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.2,
+        max_tokens: 800,
+        response_format: { type: 'json_object' }
+      });
       
       console.log("Received response from OpenAI API");
       
-      if (!response.choices || !response.choices[0]) {
+      if (!response.choices || !response.choices[0] || !response.choices[0].message) {
         console.error("Invalid response structure from OpenAI:", response);
         return getDefaultAnalysis("Invalid API response structure");
       }
       
-      // Handle different response structures based on API version
-      let resultText;
-      if (response.choices[0].message && response.choices[0].message.content) {
-        // V4 format
-        resultText = response.choices[0].message.content;
-      } else if (response.choices[0].text) {
-        // Legacy format
-        resultText = response.choices[0].text;
-      } else {
-        console.error("Unable to extract content from API response:", response.choices[0]);
-        return getDefaultAnalysis("Unable to extract content from API response");
-      }
+      const resultText = response.choices[0].message.content;
       console.log("AI response content:", resultText);
       
       // Parse JSON response safely
