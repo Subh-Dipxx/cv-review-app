@@ -16,3 +16,13 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 600;
   margin-bottom: 0.5em;
 }
+
+/* Ensure sticky elements are visible */
+.sticky {
+  z-index: 30;
+}
+
+/* Prevent parent containers from clipping sticky/fixed elements */
+body, html, .min-h-screen, .max-w-7xl {
+  overflow: visible !important;
+}

@@ -13,6 +13,9 @@ export default function Dashboard() {
     categories: 0
   });
   const [recentCVs, setRecentCVs] = useState([]);
+  const [showList, setShowList] = useState(false);
+  const [selectedRole, setSelectedRole] = useState('');
+  const [resumeSummaries, setResumeSummaries] = useState([]);
 
   useEffect(() => {
     // Redirect to login if not authenticated
@@ -24,6 +27,7 @@ export default function Dashboard() {
     // Load dashboard data
     if (user) {
       loadDashboardData();
+      fetchResumeSummaries();
     }
   }, [user, loading, router]);
 
@@ -42,6 +46,19 @@ export default function Dashboard() {
     ]);
   };
 
+  // Fetch real resume summaries from backend
+  const fetchResumeSummaries = async () => {
+    try {
+      const res = await fetch('/api/get-cvs');
+      if (!res.ok) return;
+      const data = await res.json();
+      // Only use extracted data, no mock/fabricated data
+      setResumeSummaries(data.cvs || []);
+    } catch (err) {
+      setResumeSummaries([]);
+    }
+  };
+
   const handleLogout = async () => {
     await logout();
     router.push('/login');
@@ -55,12 +72,32 @@ export default function Dashboard() {
     );
   }
 
-  if (!user) {
-    return null; // Will redirect to login
-  }
+  // if (!user) {
+  //   return null; // Will redirect to login
+  // }
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Ensure buttons are always visible at the top */}
+      <div className="w-full flex justify-center items-center py-8 bg-blue-100 border-b-4 border-blue-500 z-50" style={{ position: 'relative' }}>
+        <button
+          className="bg-blue-700 hover:bg-blue-800 text-white px-10 py-4 rounded-2xl font-extrabold text-2xl shadow-xl border-4 border-blue-400 transition-colors duration-200"
+          style={{ minWidth: '240px', letterSpacing: '1px', marginRight: '16px' }}
+          onClick={() => setShowList((prev) => !prev)}
+          id="list-resumes-btn"
+        >
+          📋 List Resumes
+        </button>
+        <button
+          className="bg-green-700 hover:bg-green-800 text-white px-10 py-4 rounded-2xl font-extrabold text-2xl shadow-xl border-4 border-green-400 transition-colors duration-200"
+          style={{ minWidth: '120px', letterSpacing: '1px' }}
+          onClick={() => alert('List button clicked')}
+          id="list-btn"
+        >
+          List
+        </button>
+      </div>
+
       {/* Navigation */}
       <nav className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -84,7 +121,6 @@ export default function Dashboard() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 py-6 sm:px-0">
-          
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div className="bg-white overflow-hidden shadow rounded-lg">
@@ -202,8 +238,50 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
+
+          {/* List Button and Filter Section */}
+          {showList && (
+            <div className="mb-8">
+              <label className="mr-2 font-medium">Filter by Job Role:</label>
+              <select
+                className="border rounded px-2 py-1"
+                value={selectedRole}
+                onChange={e => setSelectedRole(e.target.value)}
+              >
+                <option value="">All</option>
+                {[...new Set(resumeSummaries.map(cv => cv.role || "N/A"))].map(role => (
+                  <option key={role} value={role}>{role}</option>
+                ))}
+              </select>
+              <div className="mt-6">
+                <h4 className="text-lg font-semibold mb-2">Resume Summaries</h4>
+                {resumeSummaries.length === 0 ? (
+                  <div className="text-gray-500 text-sm">No resumes found.</div>
+                ) : (
+                  <ul className="space-y-4">
+                    {resumeSummaries
+                      .filter(cv => !selectedRole || (cv.role || "N/A") === selectedRole)
+                      .map(cv => (
+                        <li key={cv.id} className="bg-white rounded shadow p-4">
+                          <div className="font-bold text-gray-900">{cv.fileName || cv.name || "No Name"}</div>
+                          <div className="text-sm text-gray-700">
+                            Experience: {cv.experience ?? cv.yearsOfExperience ?? "N/A"} years
+                          </div>
+                          <div className="text-sm text-gray-700">
+                            Recommended Roles: {Array.isArray(cv.recommendedRoles) ? cv.recommendedRoles.join(', ') : "N/A"}
+                          </div>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>
   );
 }
+
+
+

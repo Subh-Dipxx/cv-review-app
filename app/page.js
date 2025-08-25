@@ -346,16 +346,21 @@ function SignInPage() {
 
 // Main Page Component with Authentication
 export default function Page() {
+  // ...existing code...
+  // Import the ListResumes component
+  const ListResumes = require('./components/ListResumes').default;
   return (
     <div>
       <Toaster position="top-right" />
-      
       <SignedOut>
         <SignInPage />
       </SignedOut>
-      
       <SignedIn>
         <CVUploadApp />
+        {/* List resumes and filter section */}
+        <div style={{ marginTop: '2rem' }}>
+          <ListResumes />
+        </div>
       </SignedIn>
     </div>
   );

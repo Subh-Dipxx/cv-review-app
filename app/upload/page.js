@@ -473,10 +473,10 @@ export default function CVUploadPage() {
       return {
         candidateName: aiData.name || 'Name Not Found',
         email: aiData.email || 'Email Not Found',
-        education: aiData.education || 'Education Not Found',
+        education: aiData.education || 'Not Provided',
         role: aiData.role || 'Software Developer',
         skills: Array.isArray(aiData.skills) ? aiData.skills : ['JavaScript', 'HTML', 'CSS'],
-        experience: typeof aiData.experience === 'number' ? aiData.experience : 2,
+        experience: typeof aiData.experience === 'number' ? aiData.experience : 0,
         summary: aiData.summary || `CV analysis for ${fileName}`,
         recommendedRoles: Array.isArray(aiData.recommendedRoles) ? aiData.recommendedRoles : ['Software Developer', 'Engineer']
       };
@@ -491,7 +491,7 @@ export default function CVUploadPage() {
         education: extractEducation(pdfText),
         role: extractRole(pdfText),
         skills: extractSkills(pdfText),
-        experience: 2,
+        experience: 0,
         summary: `CV analysis for ${fileName} (manual extraction)`,
         recommendedRoles: [extractRole(pdfText), 'Software Engineer', 'Tech Specialist']
       };
@@ -756,6 +756,12 @@ export default function CVUploadPage() {
           console.log('🔍 Starting AI-powered data extraction...');
           const extractedData = await extractDataWithAI(pdfText, fileData.name);
 
+          // Frontend fallback for education
+          if (!extractedData.education || extractedData.education === 'Not Provided' || extractedData.education === 'Education Not Found') {
+            console.log('Frontend fallback: extracting education locally.');
+            extractedData.education = extractEducation(pdfText);
+          }
+
           const cvData = {
             id: fileData.id,
             pdfName: fileData.name,
@@ -803,7 +809,7 @@ export default function CVUploadPage() {
                 education: extractEducation(pdfText) || 'Education Not Found',
                 role: extractRole(pdfText) || 'Role Not Specified',
                 skills: extractSkills(pdfText) || ['Skills Not Found'],
-                experience: 2,
+                experience: 0,
                 summary: `Manual extraction for ${fileData.name} (AI failed)`,
                 recommendedRoles: ['Manual Review Needed', 'General Position']
               };

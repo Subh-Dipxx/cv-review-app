@@ -193,31 +193,22 @@ export async function POST(request) {
         
         // Generate sample recommended roles with match percentages
         const recommendedRoles = [];
-        
         if (skills.includes("React") || skills.includes("Angular") || skills.includes("Vue")) {
-          recommendedRoles.push({ role: "Frontend Developer", match: Math.floor(Math.random() * 30) + 70 });
+          recommendedRoles.push("Frontend Developer");
         }
-        
         if (skills.includes("Node") || skills.includes("Express") || skills.includes("Django")) {
-          recommendedRoles.push({ role: "Backend Developer", match: Math.floor(Math.random() * 30) + 70 });
+          recommendedRoles.push("Backend Developer");
         }
-        
         if (skills.includes("Python") || skills.includes("SQL")) {
-          recommendedRoles.push({ role: "Data Engineer", match: Math.floor(Math.random() * 30) + 70 });
+          recommendedRoles.push("Data Engineer");
         }
-        
         if (skills.includes("Agile") || skills.includes("Scrum")) {
-          recommendedRoles.push({ role: "Project Manager", match: Math.floor(Math.random() * 30) + 70 });
+          recommendedRoles.push("Project Manager");
         }
-        
-        // Make sure we have at least one recommended role
         if (recommendedRoles.length === 0) {
-          recommendedRoles.push({ role: "General Developer", match: 65 });
+          recommendedRoles.push("General Developer");
         }
-        
-        // Sort by match percentage
-        recommendedRoles.sort((a, b) => b.match - a.match);
-        
+
         // Create summary
         const summary = text
           .split("\n")
@@ -238,7 +229,8 @@ export async function POST(request) {
           skills,
           education,
           recommendedRoles,
-          yearsOfExperience: yearsOfExperience
+          yearsOfExperience: yearsOfExperience,
+          role: category // Add role field for frontend filter
         });
         
       } catch (cvError) {
@@ -265,3 +257,4 @@ export async function POST(request) {
     }
   }
 }
+  

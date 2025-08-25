@@ -6,13 +6,22 @@ export async function GET() {
   try {
     connection = await pool.getConnection();
     
-    // Ensure table exists before querying
+    // Ensure table exists before querying, add role and recommended_roles columns if missing
     await connection.query(`
       CREATE TABLE IF NOT EXISTS cvs (
         id INT AUTO_INCREMENT PRIMARY KEY,
         file_name VARCHAR(255) NOT NULL,
         category VARCHAR(100) NOT NULL,
         summary TEXT,
+        years_of_experience INT DEFAULT 0,
+        job_title VARCHAR(100),
+        skills TEXT,
+        professional_summary TEXT,
+        college_name VARCHAR(255),
+        email VARCHAR(255),
+        phone VARCHAR(50),
+        name VARCHAR(255),
+        recommended_roles TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -21,7 +30,7 @@ export async function GET() {
       SELECT 
         id, file_name, category, summary, years_of_experience, 
         job_title, skills, professional_summary, college_name, 
-        email, phone, name, created_at 
+        email, phone, name, recommended_roles, created_at 
       FROM cvs 
       ORDER BY created_at DESC
     `);
@@ -40,6 +49,11 @@ export async function GET() {
       email: row.email || "",
       phone: row.phone || "",
       name: row.name || "",
+      recommendedRoles: row.recommended_roles
+        ? Array.isArray(row.recommended_roles)
+          ? row.recommended_roles
+          : row.recommended_roles.split(',').map(r => r.trim()).filter(Boolean)
+        : [],
       createdAt: row.created_at
     }));
     
