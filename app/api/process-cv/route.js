@@ -82,9 +82,10 @@ export async function POST(request) {
 
         // Extract email
         let email = "";
-        const emailMatch = cv.text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-        if (emailMatch) {
-          email = emailMatch[0];
+        const emailMatch = cv.text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g);
+        if (emailMatch && emailMatch.length > 0) {
+          // Only display if it does NOT look like a phone number
+          email = emailMatch.find(e => !/\d{10,}/.test(e)) || "";
         }
 
         // Extract phone number (improved to avoid email conflicts)
@@ -94,23 +95,49 @@ export async function POST(request) {
           /(?:\+91|91)?[-.\s]?\d{5}[-.\s]?\d{5}\b/g,
           /(?:\+?\d{1,3}[-.\s]?)?\d{10}\b/g
         ];
-        
-        for (const line of textLines) {
-          // Skip lines that contain @ symbol (likely email lines)
-          if (line.includes('@')) continue;
-          
-          for (const pattern of phonePatterns) {
-            const phoneMatches = line.match(pattern);
-            if (phoneMatches && phoneMatches.length > 0) {
-              const phone = phoneMatches[0].trim();
-              // Additional check to ensure it's not an email or other data
-              if (!phone.includes('@') && !phone.includes('.com') && !phone.includes('.in')) {
-                phoneNumber = phone;
-                break;
+        // Find the line containing 'contact' and extract phone number from subsequent lines
+        let contactIndex = textLines.findIndex(line => line.toLowerCase().includes('contact'));
+        if (contactIndex !== -1) {
+          for (let i = contactIndex + 1; i < textLines.length; i++) {
+            const line = textLines[i];
+            if (line.includes('@')) continue;
+            if (line.toLowerCase().includes('email')) continue;
+            if (line.toLowerCase().includes('www') || line.toLowerCase().includes('http')) continue;
+            if (/[a-zA-Z]/.test(line)) continue;
+            for (const pattern of phonePatterns) {
+              const phoneMatches = line.match(pattern);
+              if (phoneMatches && phoneMatches.length > 0) {
+                const phone = phoneMatches[0].trim();
+                const digits = phone.replace(/\D/g, '');
+                if (digits.length >= 10) {
+                  phoneNumber = phone;
+                  break;
+                }
               }
             }
+            if (phoneNumber) break;
           }
-          if (phoneNumber) break;
+        }
+        // If not found after 'contact', fallback to previous logic
+        if (!phoneNumber) {
+          for (const line of textLines) {
+            if (line.includes('@')) continue;
+            if (line.toLowerCase().includes('email')) continue;
+            if (line.toLowerCase().includes('www') || line.toLowerCase().includes('http')) continue;
+            if (/[a-zA-Z]/.test(line)) continue;
+            for (const pattern of phonePatterns) {
+              const phoneMatches = line.match(pattern);
+              if (phoneMatches && phoneMatches.length > 0) {
+                const phone = phoneMatches[0].trim();
+                const digits = phone.replace(/\D/g, '');
+                if (digits.length >= 10) {
+                  phoneNumber = phone;
+                  break;
+                }
+              }
+            }
+            if (phoneNumber) break;
+          }
         }
 
         // Extract college/university name
@@ -155,18 +182,7 @@ export async function POST(request) {
         }
         
         // If no specific experience found, try to infer from graduation year
-        if (yearsOfExperience === 0) {
-          const currentYear = new Date().getFullYear();
-          const yearMatches = cv.text.match(/20\d{2}/g);
-          if (yearMatches && yearMatches.length > 0) {
-            const years = yearMatches.map(y => parseInt(y)).sort((a, b) => b - a);
-            // Assume earliest year might be graduation year
-            const earliestYear = Math.min(...years);
-            if (earliestYear >= 2010 && earliestYear <= currentYear - 1) {
-              yearsOfExperience = Math.max(0, currentYear - earliestYear - 1);
-            }
-          }
-        }
+  // Do NOT infer years of experience from graduation year. Only set if explicitly mentioned.
 
         // Extract skills
         const skillKeywords = ["javascript", "typescript", "python", "java", "c#", "php", "ruby", "sql", "html", "css", 
@@ -179,34 +195,30 @@ export async function POST(request) {
           
         // Extract education
         let education = "Not specified";
-        if (text.includes("university") || text.includes("college") || text.includes("bachelor") || 
-            text.includes("master") || text.includes("phd") || text.includes("degree")) {
-          
-          const eduLines = cv.text.split("\n")
-            .filter(line => /university|college|bachelor|master|phd|degree/i.test(line))
-            .slice(0, 1);
-            
-          if (eduLines.length > 0) {
-            education = eduLines[0].trim();
-          }
+        const eduLines = cv.text.split("\n")
+          .filter(line => /school/i.test(line));
+        if (eduLines.length > 0) {
+          education = eduLines[0].trim();
         }
         
         // Generate sample recommended roles with match percentages
+        const roleSkillsMap = {
+          "Frontend Developer": ["React", "Angular", "Vue", "HTML", "CSS", "Javascript", "Typescript"],
+          "Backend Developer": ["Node", "Express", "Django", "Flask", "Spring", "Java", "Python", "SQL", "Dotnet", "PHP", "Ruby"],
+          "Data Engineer": ["Python", "SQL", "Docker", "Kubernetes", "AWS", "Azure", "GCP"],
+          "Project Manager": ["Agile", "Scrum", "Git", "CI/CD"],
+        };
         const recommendedRoles = [];
-        if (skills.includes("React") || skills.includes("Angular") || skills.includes("Vue")) {
-          recommendedRoles.push("Frontend Developer");
-        }
-        if (skills.includes("Node") || skills.includes("Express") || skills.includes("Django")) {
-          recommendedRoles.push("Backend Developer");
-        }
-        if (skills.includes("Python") || skills.includes("SQL")) {
-          recommendedRoles.push("Data Engineer");
-        }
-        if (skills.includes("Agile") || skills.includes("Scrum")) {
-          recommendedRoles.push("Project Manager");
-        }
+        Object.entries(roleSkillsMap).forEach(([role, relevantSkills]) => {
+          const matchedSkills = skills.filter(skill => relevantSkills.includes(skill));
+          if (matchedSkills.length > 0) {
+            // Calculate percentage match
+            const percent = Math.round((matchedSkills.length / relevantSkills.length) * 100);
+            recommendedRoles.push({ role, percent });
+          }
+        });
         if (recommendedRoles.length === 0) {
-          recommendedRoles.push("General Developer");
+          recommendedRoles.push({ role: "General Developer", percent: 50 });
         }
 
         // Create summary

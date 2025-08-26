@@ -12,7 +12,16 @@ const ListResumes = () => {
     try {
       const response = await fetch('/api/get-cvs');
       const data = await response.json();
-      setResumes(data.cvs || []);
+      // Filter out resumes with empty name or file name
+      const validResumes = (data.cvs || []).filter(resume => (resume.name && (resume.fileName || resume.file_name)));
+      // Deduplicate by name only
+      const seenNames = new Set();
+      const uniqueResumes = validResumes.filter(resume => {
+        if (seenNames.has(resume.name)) return false;
+        seenNames.add(resume.name);
+        return true;
+      });
+      setResumes(uniqueResumes);
     } catch (error) {
       console.error('Error fetching resumes:', error);
     }
@@ -38,8 +47,10 @@ const ListResumes = () => {
   const handleListClick = async () => {
     if (resumes.length === 0) {
       await fetchResumes();
+      filterResumes();
+    } else {
+      filterResumes();
     }
-    filterResumes();
   };
 
   return (
@@ -57,6 +68,7 @@ const ListResumes = () => {
       </button>
       {loading && <p>Loading resumes...</p>}
       <div style={{ marginTop: '2rem' }}>
+        <p><strong>Total resumes found:</strong> {filteredResumes.length}</p>
         {filteredResumes.map((resume, idx) => (
           <div key={idx} style={{ border: '1px solid #ccc', padding: '1rem', marginBottom: '1rem' }}>
             <strong>Name:</strong> {resume.name || ''}<br />

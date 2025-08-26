@@ -222,70 +222,44 @@ function CVUploadApp() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {results.map((result, index) => (
               <div key={index} className="border p-4 rounded-lg bg-white shadow-sm">
-                {/* Name and File */}
-                <div className="flex justify-between items-start">
-                  <h3 className="font-bold text-gray-800 truncate" title={result.name || result.fileName}>
-                    {result.name || "Not specified"}
-                  </h3>
-                  <span className="text-xs text-gray-400">{result.fileName}</span>
-                </div>
-                
-                {/* Job Title and Category */}
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <span className="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm font-medium">
-                    {result.category}
-                  </span>
-                  {result.jobTitle && (
-                    <span className="text-gray-700 text-sm">
-                      {result.jobTitle}
-                    </span>
-                  )}
-                </div>
-                
-                {/* Experience */}
-                <p className="mt-2 text-sm text-gray-600">
-                  {result.yearsOfExperience > 0 ? 
-                    `${result.yearsOfExperience} year${result.yearsOfExperience !== 1 ? 's' : ''} experience` : 
-                    'No experience'}
-                </p>
-                
-                {/* Contact Information */}
-                <div className="mt-3 space-y-1 text-sm">
-                  {result.email && (
-                    <p className="text-gray-600 flex items-center">
-                      <span className="font-medium mr-1">Email:</span> {result.email}
-                    </p>
-                  )}
-                  {result.collegeName && (
-                    <p className="text-gray-600 flex items-center">
-                      <span className="font-medium mr-1">Education:</span> {result.collegeName}
-                    </p>
-                  )}
-                </div>
-                
-                {/* Recommended Roles */}
-                {result.recommendedRoles && result.recommendedRoles.length > 0 && (
-                  <div className="mt-3">
-                    <p className="text-xs text-gray-500 font-medium">Recommended Roles:</p>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {result.recommendedRoles.map((roleObj, i) => (
-                        <span key={i} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">
-                          {typeof roleObj === 'string' ? roleObj : roleObj.role}
-                          {typeof roleObj === 'object' && roleObj.match && (
-                            <span className="ml-1 text-green-600">({roleObj.match}%)</span>
-                          )}
-                        </span>
-                      ))}
+                <h3 className="font-bold text-gray-800 truncate" title={result.name || result.fileName}>
+                  {result.name || "Not specified"}
+                </h3>
+                <span className="text-xs text-gray-400">{result.fileName}</span>
+                <div className="mt-2 text-sm text-gray-600">
+                  <div style={{ marginBottom: '0.5em' }}>
+                    <strong>Years of Experience:</strong> {result.yearsOfExperience > 0 ? `${result.yearsOfExperience} year${result.yearsOfExperience !== 1 ? 's' : ''}` : 'No experience'}
+                  </div>
+                  {(result.education || result.collegeName) && (
+                    <div style={{ marginBottom: '0.5em' }}>
+                      <strong>Education:</strong> {result.education || result.collegeName}
                     </div>
+                  )}
+                  {result.phoneNumber && (
+                    <div style={{ marginBottom: '0.5em' }}>
+                      <strong>Contact:</strong> {result.phoneNumber}
+                    </div>
+                  )}
+                  {result.email && (
+                    <div style={{ marginBottom: '0.5em' }}>
+                      <strong>Email:</strong> {result.email}
+                    </div>
+                  )}
+                </div>
+                {result.recommendedRoles && result.recommendedRoles.length > 0 && (
+                  <div className="mt-2">
+                    <strong>Recommended Roles:</strong>
+                    <ul style={{ margin: 0, paddingLeft: '1em' }}>
+                      {result.recommendedRoles.map((roleObj, i) => (
+                        <li key={i}>
+                          {typeof roleObj === 'string' ? roleObj : `${roleObj.role} (${roleObj.percent}%)`}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
-                
-                {/* Professional Summary */}
-                <div className="mt-3">
-                  <p className="text-xs text-gray-500 font-medium">Professional Summary:</p>
-                  <p className="text-gray-600 text-sm line-clamp-3">
-                    {result.professionalSummary || result.summary || "No summary available."}
-                  </p>
+                <div className="mt-2">
+                  <strong>Summary:</strong> {result.summary || "No summary available."}
                 </div>
                 
                 {/* Skills */}
