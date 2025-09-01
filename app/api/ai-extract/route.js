@@ -1,117 +1,14 @@
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
+import OpenAI from "openai";
+import pool from "../../lib/db";
 
-// Fallback extraction function when OpenAI API fails
-function getFallbackExtraction(text, fileName, educationOnly = false) {
-  console.log(`🔄 Using fallback extraction for: ${fileName}${educationOnly ? ' (Education Only)' : ''}`);
-  
-  // Basic text analysis
-  const lines = text.toLowerCase().split('\n').filter(line => line.trim().length > 0);
-  
-  // Extract education with better degree name formatting
-  let education = 'Education Not Found';
-  const educationKeywords = [
-    { pattern: /\b(bachelor|bs|ba|btech|be)\b/i, name: 'Bachelor\'s Degree' },
-    { pattern: /\b(master|ms|ma|mtech|me|mba)\b/i, name: 'Master\'s Degree' },
-    { pattern: /\b(phd|doctorate)\b/i, name: 'Doctorate/PhD' },
-    { pattern: /\bjd\b/i, name: 'Juris Doctor (Law Degree)' },
-    { pattern: /\b(md|mbbs)\b/i, name: 'Medical Degree' },
-    { pattern: /\b(llb)\b/i, name: 'Bachelor of Law' },
-    { pattern: /\buniversity\b/i, name: 'University Education' },
-    { pattern: /\bcollege\b/i, name: 'College Education' }
-  ];
-
-  for (const { pattern, name } of educationKeywords) {
-    const regex = new RegExp(`([^.]*${pattern.source}[^.]{0,50})`, 'i');
-    const match = text.match(regex);
-    if (match) {
-      let found = match[1].trim();
-      found = found.replace(/[^\w\s.,&()-]/g, '').trim();
-      if (found.length > 10 && found.length < 80) {
-        const words = found.split(/\s+/);
-        if (words.length === 1 && pattern.test(words[0])) {
-          education = name;
-        } else {
-          education = found;
-        }
-        break;
-      }
-    }
-  }
-
-  if (educationOnly) {
-    return education;
-  }
-
-  // Extract name (usually in first few lines)
-  let name = 'Name Not Found';
-  for (let i = 0; i < Math.min(5, lines.length); i++) {
-    const line = lines[i].trim();
-    if (line.length > 5 && line.length < 50 && !line.includes('@') && !line.includes('http')) {
-      if (!line.includes('resume') && !line.includes('curriculum') && !line.includes('vitae') &&
-          !line.includes('phone') && !line.includes('email') && !line.includes('address')) {
-        name = line.split(' ').map(word =>
-          word.charAt(0).toUpperCase() + word.slice(1)
-        ).join(' ');
-        break;
-      }
-    }
-  }
-
-  // Extract email
-  const emailMatch = text.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-  const email = emailMatch ? emailMatch[1] : 'Email Not Found';
-
-  // Extract role
-  const roleKeywords = ['developer', 'engineer', 'manager', 'analyst', 'designer', 'consultant'];
-  let role = 'Software Developer';
-  for (const keyword of roleKeywords) {
-    if (text.toLowerCase().includes(keyword)) {
-      role = keyword.charAt(0).toUpperCase() + keyword.slice(1);
-      break;
-    }
-  }
-
-  // Extract skills
-  const skillKeywords = ['javascript', 'python', 'java', 'react', 'node', 'sql', 'html', 'css', 'aws', 'docker'];
-  const skills = skillKeywords.filter(skill =>
-    text.toLowerCase().includes(skill)
-  ).map(skill => skill.toUpperCase()).slice(0, 8);
-
-  if (skills.length === 0) {
-    skills.push('JavaScript', 'HTML', 'CSS');
-  }
-
-  // Improved experience extraction: only match work experience phrases
-  let experience = 0;
-  const expPatterns = [
-    /(\d{1,2})\s*\+?\s*(years|yrs)\s+(of\s+)?(work|working|experience|industry)/i,
-    /(over|more than)\s*(\d{1,2})\s*(years|yrs)\s+(of\s+)?(work|working|experience|industry)/i
-  ];
-  let expMatch = expPatterns[0].exec(text);
-  let overMatch = expPatterns[1].exec(text);
-  if (expMatch) {
-    experience = parseInt(expMatch[1], 10);
-  } else if (overMatch) {
-    experience = parseInt(overMatch[2], 10);
-  }
-  // Always default to 0 if not matched
-  if (!experience || isNaN(experience)) experience = 0;
-
-  return {
-    name,
-    email,
-    education,
-    role,
-    skills,
-    experience,
-    summary: `Professional analysis for ${fileName} using pattern-based extraction.`,
-    recommendedRoles: [role, 'Software Engineer', 'Technical Specialist', 'Developer']
-  };
-}
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 export async function POST(request) {
   try {
-    const { text, fileName } = await request.json();
+    const { text, fileName, cvId } = await request.json();
 
     if (!text || text.length < 10) {
       return NextResponse.json(
@@ -120,12 +17,102 @@ export async function POST(request) {
       );
     }
 
-    // Use only hardcoded extraction
-    const extracted = getFallbackExtraction(text, fileName);
-    return NextResponse.json(extracted);
+    const prompt = `
+      Analyze the following resume text and extract the information into a structured JSON object.
+      The JSON object must have the following keys: "name", "email", "phone", "education", "yearsOfExperience", "role", "skills", "summary", "recommendedRoles".
+
+      - "name": The full name of the candidate. Default to "Not Found" if missing.
+      - "email": The candidate's email address. Default to "Not Found" if missing.
+      - "phone": The candidate's phone number. Default to "Not Found" if missing.
+      - "education": A brief summary of their highest education (e.g., "Bachelor of Science in Computer Science"). Default to "Not specified" if missing.
+      - "yearsOfExperience": The total years of professional experience as a number. Default to 0 if not found.
+      - "role": The most recent or primary job title (e.g., "Senior Software Engineer"). Default to "Not specified" if missing.
+      - "skills": A JSON array of the top 5-7 most relevant technical skills (e.g., ["React", "Node.js", "Python"]). Default to an empty array if none are found.
+      - "summary": A concise 2-3 sentence professional summary of the candidate. Default to "No summary available." if missing.
+      - "recommendedRoles": A JSON array of 3-4 suitable job titles based on the resume (e.g., ["Frontend Developer", "UI Engineer"]). Default to an empty array if none are found.
+
+      Resume Text:
+      ---
+      ${text.substring(0, 8000)}
+      ---
+    `;
+
+      const response = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      temperature: 0.2,
+    });
+
+    console.log('OpenAI response received:', response.choices[0].message.content);
+    
+    let extractedData;
+    try {
+      extractedData = JSON.parse(response.choices[0].message.content);
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      // Provide default values if parsing fails
+      extractedData = {
+        name: "Parse Error",
+        email: "Not available",
+        phone: "Not available",
+        education: "Not available",
+        yearsOfExperience: 0,
+        role: "Not specified",
+        skills: ["Error parsing skills"],
+        summary: "There was an error parsing the resume data. Please try again.",
+        recommendedRoles: ["Not available"]
+      };
+    }    const { name, email, phone, education, yearsOfExperience, role, skills, summary, recommendedRoles } = extractedData;
+
+    console.log('Processing extracted data for CV ID:', cvId);
+    console.log('Summary:', summary);
+    
+    // Ensure all data is properly formatted to prevent SQL errors
+    const connection = await pool.getConnection();
+    
+    // Format arrays properly
+    const formattedSkills = Array.isArray(skills) ? skills.join(', ') : 'No skills';
+    const formattedRoles = Array.isArray(recommendedRoles) ? recommendedRoles.join(', ') : 'No roles';
+    
+    try {
+      await connection.query(
+        `UPDATE cvs SET 
+           name = ?, 
+           email = ?, 
+           phone = ?, 
+           professional_summary = ?, 
+           years_of_experience = ?, 
+           job_title = ?, 
+           skills = ?, 
+           summary = ?, 
+           recommended_roles = ? 
+         WHERE id = ?`,
+        [
+          name || 'Unknown', 
+          email || 'No email', 
+          phone || 'No phone', 
+          education || 'No education', 
+          yearsOfExperience || 0, 
+          role || 'No role',
+          formattedSkills,
+          summary || `Resume analysis for ${fileName || 'unknown file'}`,
+          formattedRoles,
+          cvId
+        ]
+      );
+      console.log('Database updated successfully for CV ID:', cvId);
+    } catch (dbError) {
+      console.error('Database update error:', dbError);
+      throw new Error(`Database update failed: ${dbError.message}`);
+    } finally {
+      connection.release();
+    }
+
+    return NextResponse.json({ ...extractedData, cvId });
 
   } catch (error) {
     console.error('❌ Extraction error:', error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: `AI extraction failed: ${error.message}` }, { status: 500 });
   }
 }

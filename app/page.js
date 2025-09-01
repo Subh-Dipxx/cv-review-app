@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState, lazy, Suspense } from "react";
 import { useDropzone } from "react-dropzone";
 import toast, { Toaster } from "react-hot-toast";
 import { SignedIn, SignedOut, SignInButton, useUser } from "@clerk/nextjs";
@@ -318,11 +318,11 @@ function SignInPage() {
   );
 }
 
+// Import ListResumes component with lazy loading
+const ListResumes = lazy(() => import('./components/ListResumes'));
+
 // Main Page Component with Authentication
 export default function Page() {
-  // ...existing code...
-  // Import the ListResumes component
-  const ListResumes = require('./components/ListResumes').default;
   return (
     <div>
       <Toaster position="top-right" />
@@ -331,10 +331,12 @@ export default function Page() {
       </SignedOut>
       <SignedIn>
         <CVUploadApp />
-        {/* List resumes and filter section */}
-        <div style={{ marginTop: '2rem' }}>
-          <ListResumes />
-        </div>
+        {/* List resumes section */}
+        <Suspense fallback={<div>Loading resume list...</div>}>
+          <div className="mt-8 max-w-5xl mx-auto">
+            <ListResumes />
+          </div>
+        </Suspense>
       </SignedIn>
     </div>
   );

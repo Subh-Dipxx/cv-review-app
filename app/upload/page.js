@@ -469,14 +469,21 @@ export default function CVUploadPage() {
       const aiData = await response.json();
       console.log('🎯 AI extraction successful:', aiData);
       
+      // Log the specific fields we're interested in
+      console.log('Summary from API:', aiData.summary);
+      console.log('Name from API:', aiData.name);
+      console.log('Experience from API:', aiData.yearsOfExperience);
+      
       // Ensure all required fields are present
       return {
         candidateName: aiData.name || 'Name Not Found',
+        name: aiData.name || 'Name Not Found',
         email: aiData.email || 'Email Not Found',
         education: aiData.education || 'Not Provided',
         role: aiData.role || 'Software Developer',
         skills: Array.isArray(aiData.skills) ? aiData.skills : ['JavaScript', 'HTML', 'CSS'],
-        experience: typeof aiData.experience === 'number' ? aiData.experience : 0,
+        experience: typeof aiData.yearsOfExperience === 'number' ? aiData.yearsOfExperience : 0,
+        yearsOfExperience: typeof aiData.yearsOfExperience === 'number' ? aiData.yearsOfExperience : 0,
         summary: aiData.summary || `CV analysis for ${fileName}`,
         recommendedRoles: Array.isArray(aiData.recommendedRoles) ? aiData.recommendedRoles : ['Software Developer', 'Engineer']
       };
@@ -735,125 +742,145 @@ export default function CVUploadPage() {
     }
 
     setProcessing(true);
-    const results = [];
+    const formData = new FormData();
+    uploadedFiles.forEach(fileData => {
+      formData.append('files', fileData.file);
+    });
 
     try {
-      for (const fileData of uploadedFiles) {
+      // Step 1: Upload and parse PDFs
+      console.log("Uploading files to /api/parse-cv...");
+      const response = await fetch('/api/parse-cv', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Parse CV failed (${response.status}): ${errorText}`);
+      }
+
+      const parsedData = await response.json();
+      console.log("Parsed data received:", parsedData);
+
+      // Step 2: Process each PDF with AI
+      const processedResults = [];
+      for (const result of parsedData.results || []) {
+        if (!result || !result.text) {
+          console.error("Invalid result object:", result);
+          continue;
+        }
+
+        console.log(`Processing file: ${result.fileName || 'unknown'}`);
         try {
-          console.log('📋 Processing file:', fileData.name);
-          toast.loading(`Processing ${fileData.name}...`);
-          
-          // Extract text from PDF with fallback methods
-          const pdfText = await extractTextFromPDF(fileData.file);
-          
-          console.log('📋 Successfully extracted', pdfText.length, 'characters from', fileData.name);
-          
-          if (!pdfText || pdfText.trim().length < 10) {
-            throw new Error('No meaningful text could be extracted from PDF');
+          const aiResponse = await fetch('/api/ai-extract', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              text: result.text, 
+              fileName: result.fileName, 
+              cvId: result.cvId 
+            }),
+          });
+
+          const aiData = await aiResponse.json();
+          console.log("AI data received:", aiData);
+
+          if (!aiResponse.ok) {
+            toast.error(`AI processing failed for ${result.fileName}`);
+            continue;
           }
 
-          // Extract information using AI-powered analysis
-          console.log('🔍 Starting AI-powered data extraction...');
-          const extractedData = await extractDataWithAI(pdfText, fileData.name);
-
-          // Frontend fallback for education
-          if (!extractedData.education || extractedData.education === 'Not Provided' || extractedData.education === 'Education Not Found') {
-            console.log('Frontend fallback: extracting education locally.');
-            extractedData.education = extractEducation(pdfText);
-          }
-
+          // Create CV object with exactly the data from the API - no fallbacks or fabricated data
           const cvData = {
-            id: fileData.id,
-            pdfName: fileData.name,
-            ...extractedData
+            id: result.cvId,
+            pdfName: result.fileName,
+            name: aiData.name,
+            email: aiData.email,
+            education: aiData.education,
+            role: aiData.role,
+            skills: Array.isArray(aiData.skills) ? aiData.skills : [],
+            yearsOfExperience: aiData.yearsOfExperience,
+            experience: aiData.yearsOfExperience,
+            summary: aiData.summary,
+            recommendedRoles: Array.isArray(aiData.recommendedRoles) ? aiData.recommendedRoles : []
           };
-
-          results.push(cvData);
-          toast.dismiss();
-          toast.success(`✅ AI analysis complete: ${extractedData.candidateName || 'Unknown'}`);
-
-        } catch (error) {
-          console.error('❌ Processing error for', fileData.name, ':', error.message);
-          toast.dismiss();
           
-          // Determine error type and provide specific feedback
-          let errorMessage = '';
-          let fallbackData = null;
+          console.log("Processed CV data:", cvData);
+          console.log("CV Summary:", cvData.summary);
+          processedResults.push(cvData);
+          toast.success(`✓ Processed: ${cvData.candidateName}`);
           
-          if (error.message.includes('Could not extract text') || error.message.includes('No meaningful text')) {
-            errorMessage = `${fileData.name}: Unable to extract text - PDF might be image-based, password-protected, or corrupted. Please try converting to text-based PDF or use OCR.`;
-            
-            // Create fallback entry with suggestions
-            fallbackData = {
-              id: fileData.id,
-              pdfName: fileData.name,
-              candidateName: 'Text Extraction Failed',
-              email: 'extraction.failed@example.com',
-              education: 'Unable to extract - Please check PDF format',
-              role: 'PDF Analysis Failed',
-              skills: ['PDF Processing Error'],
-              experience: 0,
-              summary: `Failed to extract text from ${fileData.name}. This usually happens with: 1) Image-based PDFs (scanned documents), 2) Password-protected files, 3) Corrupted files, 4) Non-standard PDF formats. Try converting the PDF to text-searchable format.`,
-              recommendedRoles: ['Manual Review Required']
-            };
-          } else if (error.message.includes('AI extraction API failed')) {
-            errorMessage = `${fileData.name}: AI analysis failed - Using manual extraction as fallback`;
-            // In this case, we should still have some extracted text, so let's try manual parsing
-            try {
-              const pdfText = await extractTextFromPDF(fileData.file);
-              fallbackData = {
-                id: fileData.id,
-                pdfName: fileData.name,
-                candidateName: extractName(pdfText) || 'Name Not Found',
-                email: extractEmail(pdfText) || 'Email Not Found',
-                education: extractEducation(pdfText) || 'Education Not Found',
-                role: extractRole(pdfText) || 'Role Not Specified',
-                skills: extractSkills(pdfText) || ['Skills Not Found'],
-                experience: 0,
-                summary: `Manual extraction for ${fileData.name} (AI failed)`,
-                recommendedRoles: ['Manual Review Needed', 'General Position']
-              };
-            } catch (fallbackError) {
-              fallbackData = {
-                id: fileData.id,
-                pdfName: fileData.name,
-                candidateName: 'Complete Processing Failure',
-                email: 'processing.failed@example.com',
-                education: 'Could not process file',
-                role: 'Processing Error',
-                skills: ['File Processing Failed'],
-                experience: 0,
-                summary: `Complete processing failure for ${fileData.name}`,
-                recommendedRoles: ['Manual Review Required']
-              };
-            }
-          } else {
-            errorMessage = `Failed to process ${fileData.name}: ${error.message}`;
-            fallbackData = {
-              id: fileData.id,
-              pdfName: fileData.name,
-              candidateName: 'Unknown Processing Error',
-              email: 'error@example.com',
-              education: 'Processing failed',
-              role: 'Error',
-              skills: ['Processing Error'],
-              experience: 0,
-              summary: `Error processing ${fileData.name}: ${error.message}`,
-              recommendedRoles: ['Manual Review Required']
-            };
-          }
-          
-          toast.error(errorMessage);
-          results.push(fallbackData);
+          // Immediately show toast with summary
+          toast(
+            <div className="p-4 bg-blue-50 rounded-lg max-w-md">
+              <h4 className="font-bold text-blue-800 mb-2">Resume Summary</h4>
+              <p><strong>Name:</strong> {cvData.name || "Not available"}</p>
+              <p><strong>Years of Experience:</strong> {
+                cvData.yearsOfExperience !== null && cvData.yearsOfExperience !== undefined 
+                  ? `${cvData.yearsOfExperience} years` 
+                  : "Not specified"
+              }</p>
+              <p><strong>Recommended Roles:</strong> {
+                Array.isArray(cvData.recommendedRoles) && cvData.recommendedRoles.length > 0
+                  ? cvData.recommendedRoles.join(", ")
+                  : "Not specified"
+              }</p>
+            </div>,
+            { duration: 8000, position: "top-center" }
+          );
+        } catch (aiError) {
+          console.error("AI processing error:", aiError);
+          toast.error(`Processing error: ${aiError.message}`);
         }
       }
 
-      setProcessedCVs(results);
-      toast.success(`Completed processing ${results.length} CV(s)`);
-
+      console.log("Final processed results:", processedResults);
+      setProcessedCVs(processedResults);
+      
+      if (processedResults.length > 0) {
+        toast.success(`Successfully processed ${processedResults.length} CVs!`, {
+          duration: 5000,
+        });
+        
+        // Show a prominent summary modal for each processed CV
+        processedResults.forEach(cv => {
+          toast.custom(
+            (t) => (
+              <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} bg-white shadow-lg rounded-lg p-6 max-w-md w-full`}>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-bold text-gray-900">Resume Summary</h3>
+                  <button onClick={() => toast.dismiss(t.id)}>
+                    <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                  </button>
+                </div>
+                <div className="border-l-4 border-blue-500 pl-4 py-2 mb-4">
+                  <p className="text-lg font-medium">{cv.candidateName || cv.name || "Unnamed Candidate"}</p>
+                  <p className="text-sm text-gray-500">{cv.pdfName || "Unknown file"}</p>
+                </div>
+                <div className="space-y-2 mb-4">
+                  <p><strong>Experience:</strong> {cv.experience || cv.yearsOfExperience || 0} years</p>
+                  <p><strong>Recommended Roles:</strong> {cv.recommendedRoles ? (Array.isArray(cv.recommendedRoles) ? cv.recommendedRoles.join(", ") : cv.recommendedRoles) : "None specified"}</p>
+                  <p><strong>Email:</strong> {cv.email || "Not provided"}</p>
+                  <p><strong>Education:</strong> {cv.education || "Not specified"}</p>
+                  <div className="mt-3 bg-gray-50 p-3 rounded">
+                    <p><strong>Summary:</strong></p>
+                    <p className="text-gray-700">{cv.summary || "No summary available"}</p>
+                  </div>
+                </div>
+              </div>
+            ),
+            { duration: 8000, position: 'bottom-center' }
+          );
+        });
+      } else {
+        toast.warning('No CVs were successfully processed. Check the console for errors.');
+      }
     } catch (error) {
       console.error('Processing error:', error);
-      toast.error('CV processing failed');
+      toast.error(`An error occurred: ${error.message}`);
     } finally {
       setProcessing(false);
     }
@@ -966,65 +993,42 @@ export default function CVUploadPage() {
           <div className="space-y-6">
             <h2 className="text-2xl font-bold text-gray-900">Analysis Results</h2>
 
-            {processedCVs.map((cv) => (
-              <div key={cv.id} className="bg-white rounded-xl shadow-lg p-8 hover:shadow-xl transition-shadow duration-200">
+            {processedCVs.map((cv, index) => (
+              <div key={index} className="bg-white rounded-xl shadow-lg p-8 hover:shadow-xl transition-shadow duration-200">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-bold text-gray-900">{cv.candidateName}</h3>
-                  <p className="text-sm text-gray-500">{cv.pdfName}</p>
+                  <h3 className="text-xl font-bold text-gray-900">{cv.candidateName || cv.name || "Unnamed Candidate"}</h3>
+                  <p className="text-sm text-gray-500">{cv.pdfName || "Unknown file"}</p>
                 </div>
 
-                {/* Role Tag */}
+                {/* Large Summary Box */}
+                <div className="p-6 bg-blue-50 border-l-4 border-blue-500 rounded-lg mb-6">
+                  <h4 className="text-lg font-bold text-blue-800 mb-3">Resume Summary</h4>
+                  <div className="text-gray-800">
+                    {/* Display exact data without fallbacks */}
+                    <p className="mb-2"><strong>Name:</strong> {cv.name || "Not provided"}</p>
+                    <p className="mb-2"><strong>Years of Experience:</strong> {
+                      cv.yearsOfExperience !== null && cv.yearsOfExperience !== undefined 
+                        ? `${cv.yearsOfExperience} years` 
+                        : "Not specified"
+                    }</p>
+                    <p className="mb-2"><strong>Recommended Roles:</strong> {
+                      Array.isArray(cv.recommendedRoles) && cv.recommendedRoles.length > 0
+                        ? cv.recommendedRoles.join(", ") 
+                        : "Not specified"
+                    }</p>
+                    <div className="mt-4 p-4 bg-white rounded shadow-inner">
+                      <p className="font-semibold mb-1">Additional Information:</p>
+                      <p className="mb-2"><strong>Email:</strong> {cv.email || "Not provided"}</p>
+                      <p className="mb-2"><strong>Education:</strong> {cv.education || "Not specified"}</p>
+                      <p className="text-gray-700"><strong>Summary:</strong> {cv.summary || "No summary available"}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Contact Info */}
                 <div className="mb-4">
-                  <span className="bg-blue-100 text-blue-800 text-sm font-medium px-3 py-1 rounded-full">
-                    {cv.role}
-                  </span>
-                </div>
-
-                {/* Contact & Education Info */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 text-sm text-gray-600">
-                  <div>
-                    <span className="font-medium">Email:</span> {cv.email}
-                  </div>
-                  <div>
-                    <span className="font-medium">Education:</span> {cv.education}
-                  </div>
-                </div>
-
-                {/* Summary */}
-                <div className="mb-6">
-                  <h4 className="text-sm font-medium text-gray-900 mb-3">Summary</h4>
-                  <p className="text-gray-600 leading-relaxed">{cv.summary}</p>
-                </div>
-
-                {/* Skills */}
-                <div className="mb-6">
-                  <h4 className="text-sm font-medium text-gray-900 mb-3">Skills</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {cv.skills.map((skill, index) => (
-                      <span
-                        key={index}
-                        className="bg-gray-100 text-gray-700 text-sm font-medium px-3 py-1 rounded-full"
-                      >
-                        {skill}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Recommended Roles */}
-                <div>
-                  <h4 className="text-sm font-medium text-gray-900 mb-3">Recommended Roles</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {cv.recommendedRoles.map((role, index) => (
-                      <span
-                        key={index}
-                        className="bg-green-100 text-green-800 text-sm font-medium px-3 py-1 rounded-full"
-                      >
-                        {role}
-                      </span>
-                    ))}
-                  </div>
+                  <p><strong>Phone:</strong> {cv.phone || "Not provided"}</p>
                 </div>
               </div>
             ))}

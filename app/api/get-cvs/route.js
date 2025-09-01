@@ -11,6 +11,7 @@ export async function GET() {
       CREATE TABLE IF NOT EXISTS cvs (
         id INT AUTO_INCREMENT PRIMARY KEY,
         file_name VARCHAR(255) NOT NULL,
+        content_hash VARCHAR(64) UNIQUE,
         category VARCHAR(100) NOT NULL,
         summary TEXT,
         years_of_experience INT DEFAULT 0,
@@ -36,26 +37,50 @@ export async function GET() {
     `);
     
     // Format the response
-    const formattedRows = rows.map(row => ({
-      id: row.id,
-      fileName: row.file_name,
-      category: row.category,
-      summary: row.summary,
-      yearsOfExperience: row.years_of_experience || 0,
-      jobTitle: row.job_title || "Not specified",
-      skills: row.skills ? row.skills.split(', ') : [],
-      professionalSummary: row.professional_summary,
-      collegeName: row.college_name || "",
-      email: row.email || "",
-      phone: row.phone || "",
-      name: row.name || "",
-      recommendedRoles: row.recommended_roles
-        ? Array.isArray(row.recommended_roles)
-          ? row.recommended_roles
-          : row.recommended_roles.split(',').map(r => r.trim()).filter(Boolean)
-        : [],
-      createdAt: row.created_at
-    }));
+    // Add debugging to see raw data
+    console.log('Raw database rows:', JSON.stringify(rows));
+    
+    const formattedRows = rows.map(row => {
+      // Process recommendedRoles in a consistent way
+      let recommendedRoles = [];
+      if (row.recommended_roles) {
+        try {
+          // First check if it's already a valid JSON array
+          if (row.recommended_roles.startsWith('[') && row.recommended_roles.endsWith(']')) {
+            recommendedRoles = JSON.parse(row.recommended_roles);
+          } else {
+            // Otherwise split by commas
+            recommendedRoles = row.recommended_roles.split(',').map(r => r.trim()).filter(Boolean);
+          }
+        } catch (e) {
+          console.error('Error parsing recommended roles:', e);
+          recommendedRoles = row.recommended_roles.split(',').map(r => r.trim()).filter(Boolean);
+        }
+      }
+
+      // Don't add any default values - only return what's actually in the database
+      return {
+        id: row.id,
+        fileName: row.file_name,
+        category: row.category,
+        summary: row.summary,
+        // Use raw values from database without defaults
+        yearsOfExperience: row.years_of_experience,
+        experience: row.years_of_experience,
+        jobTitle: row.job_title,
+        role: row.job_title,
+        skills: row.skills ? row.skills.split(', ') : [],
+        professionalSummary: row.professional_summary,
+        education: row.professional_summary,
+        collegeName: row.college_name,
+        email: row.email,
+        phone: row.phone,
+        name: row.name,
+        candidateName: row.name,
+        recommendedRoles: recommendedRoles,
+        createdAt: row.created_at
+      };
+    });
     
     return NextResponse.json({ cvs: formattedRows });
   } catch (error) {
