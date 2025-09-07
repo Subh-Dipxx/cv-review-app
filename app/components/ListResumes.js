@@ -24,7 +24,7 @@ const ListResumes = () => {
   
   // Role categories for filter dropdown
   const roleCategories = [
-    'Frontend', 'Backend', 'Full Stack', 'DevOps', 'Data Science',
+    'Frontend', 'Backend', 'Full Stack Developer', 'DevOps', 'Data Science',
     'Product Management', 'Project Management', 'UX/UI Design',
     'QA/Testing', 'Cloud Architecture', 'Security', 'Mobile Development'
   ];
@@ -95,201 +95,266 @@ const ListResumes = () => {
     setLoading(false);
   };
 
-  // Filter resumes based on filters with ranking
-  const filterResumes = () => {
-    let filtered = resumes.map(resume => ({
-      ...resume,
-      relevanceScore: 0 // Initialize relevance score
-    }));
+  // Comprehensive skill keywords to search for in resume content
+  const skillKeywords = [
+    // Programming Languages
+    'javascript', 'python', 'java', 'c++', 'c#', 'php', 'ruby', 'go', 'rust', 'swift', 'kotlin', 'typescript',
+    // Web Technologies
+    'html', 'css', 'react', 'angular', 'vue', 'node', 'express', 'django', 'flask', 'spring', 'laravel',
+    // Databases
+    'mysql', 'postgresql', 'mongodb', 'sqlite', 'oracle', 'redis', 'elasticsearch',
+    // Cloud & DevOps
+    'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'jenkins', 'git', 'gitlab', 'github',
+    // Data Science & AI
+    'pandas', 'numpy', 'tensorflow', 'pytorch', 'scikit-learn', 'matplotlib', 'seaborn',
+    // Mobile Development
+    'android', 'ios', 'react native', 'flutter', 'xamarin',
+    // Other Technologies
+    'linux', 'windows', 'macos', 'nginx', 'apache', 'elasticsearch', 'spark', 'hadoop'
+  ];
+
+  // Extract skills from resume content
+  const extractSkillsFromContent = (resume) => {
+    const content = (resume.summary || '').toLowerCase();
+    const foundSkills = [];
     
-    // Text search filter with scoring
-    if (searchText) {
-      const searchTerm = searchText.toLowerCase();
-      filtered = filtered.filter(resume => {
-        let found = false;
-        let score = 0;
-        
-        // Check name (highest priority)
-        if (resume.name && resume.name.toLowerCase().includes(searchTerm)) {
-          found = true;
-          score += 10; // High score for name match
+    skillKeywords.forEach(skill => {
+      if (content.includes(skill.toLowerCase())) {
+        foundSkills.push(skill);
+      }
+    });
+    
+    // Also include skills from the database if available
+    if (resume.skills) {
+      let dbSkills = [];
+      if (Array.isArray(resume.skills)) {
+        dbSkills = resume.skills;
+      } else if (typeof resume.skills === 'string') {
+        dbSkills = resume.skills.split(',').map(s => s.trim()).filter(s => s);
+      }
+      // Add unique database skills
+      dbSkills.forEach(skill => {
+        if (!foundSkills.some(fs => fs.toLowerCase() === skill.toLowerCase())) {
+          foundSkills.push(skill.toLowerCase());
         }
-        
-        // Check candidate name (alternative field name)
-        if (resume.candidateName && resume.candidateName.toLowerCase().includes(searchTerm)) {
-          found = true;
-          score += 10;
-        }
-        
-        // Check recommended roles (high priority)
-        if (Array.isArray(resume.recommendedRoles) && resume.recommendedRoles.length > 0) {
-          const roleMatches = resume.recommendedRoles.filter(role => 
-            role.toLowerCase().includes(searchTerm)
-          );
-          if (roleMatches.length > 0) {
-            found = true;
-            score += roleMatches.length * 8; // Score based on number of role matches
-          }
-        }
-        
-        // Check skills (medium priority)
-        if (Array.isArray(resume.skills) && resume.skills.length > 0) {
-          const skillMatches = resume.skills.filter(skill => 
-            skill.toLowerCase().includes(searchTerm)
-          );
-          if (skillMatches.length > 0) {
-            found = true;
-            score += skillMatches.length * 5; // Score based on number of skill matches
-          }
-        }
-        
-        // Check summary text (lower priority)
-        if (resume.summary && resume.summary.toLowerCase().includes(searchTerm)) {
-          found = true;
-          score += 2; // Lower score for summary match
-        }
-        
-        // Check role/job title (medium priority)
-        if (resume.role && resume.role.toLowerCase().includes(searchTerm)) {
-          found = true;
-          score += 6;
-        }
-        
-        if (found) {
-          resume.relevanceScore += score;
-        }
-        
-        return found;
       });
     }
     
-    // Experience level filter with scoring
-    if (experienceLevel) {
-      filtered = filtered.filter(resume => {
-        const years = resume.yearsOfExperience || resume.experience || 0;
-        let matches = false;
-        let score = 0;
-        
+    return foundSkills;
+  };
+
+  // Advanced filter resumes with unbiased percentage-based ranking
+  const filterResumes = () => {
+    if (!searchText && !experienceLevel && !selectedSkill && !roleCategory) {
+      // No filters applied, just sort by date
+      const sorted = [...resumes].sort((a, b) => 
+        new Date(b.created_at || 0) - new Date(a.created_at || 0)
+      );
+      setFilteredResumes(sorted);
+      return;
+    }
+
+    let filtered = resumes.map(resume => {
+      let totalScore = 0;
+      let maxPossibleScore = 0;
+      const matchDetails = {
+        textMatch: 0,
+        experienceMatch: 0,
+        skillMatch: 0,
+        roleMatch: 0
+      };
+
+      // 1. TEXT SEARCH SCORING (25 points max)
+      if (searchText) {
+        maxPossibleScore += 25;
+        const searchTerm = searchText.toLowerCase();
+        let textScore = 0;
+
+        // Name matching (5 points)
+        if (resume.name && resume.name.toLowerCase().includes(searchTerm)) {
+          textScore += resume.name.toLowerCase() === searchTerm ? 5 : 3;
+        }
+
+        // Summary matching (5 points) 
+        if (resume.summary && resume.summary.toLowerCase().includes(searchTerm)) {
+          textScore += 5;
+        }
+
+        // Skills matching (10 points)
+        const resumeSkills = extractSkillsFromContent(resume);
+        if (resumeSkills.length > 0) {
+          const matchingSkills = resumeSkills.filter(skill => 
+            skill.toLowerCase().includes(searchTerm)
+          );
+          if (matchingSkills.length > 0) {
+            // Give more weight if candidate has more total skills
+            const skillDensity = resumeSkills.length / 10; // Normalize by 10 skills as baseline
+            const matchRatio = matchingSkills.length / resumeSkills.length;
+            textScore += Math.min(matchRatio * 10 * Math.min(skillDensity, 2), 10);
+          }
+        }
+
+        // Role matching (5 points)
+        if (resume.recommendedRoles) {
+          let roles = [];
+          if (Array.isArray(resume.recommendedRoles)) {
+            roles = resume.recommendedRoles;
+          } else if (typeof resume.recommendedRoles === 'string') {
+            roles = resume.recommendedRoles.split(',').map(r => r.trim()).filter(r => r);
+          }
+          
+          const matchingRoles = roles.filter(role => 
+            role.toLowerCase().includes(searchTerm)
+          );
+          if (matchingRoles.length > 0) {
+            textScore += Math.min((matchingRoles.length / roles.length) * 5, 5);
+          }
+        }
+
+        totalScore += textScore;
+        matchDetails.textMatch = Math.round((textScore / 25) * 100);
+      }
+
+      // 2. EXPERIENCE LEVEL SCORING (25 points max)
+      if (experienceLevel) {
+        maxPossibleScore += 25;
+        const years = parseInt(resume.yearsOfExperience || resume.experience || 0);
+        let expScore = 0;
+
         switch (experienceLevel) {
           case 'junior':
-            if (years >= 0 && years <= 2) {
-              matches = true;
-              // Perfect match gets higher score
-              score = years === 1 ? 5 : (years === 0 ? 4 : 3);
+            if (years >= 0 && years <= 3) {
+              expScore = 25 - Math.abs(years - 1.5) * 5; // Optimal at 1.5 years
             }
             break;
           case 'mid':
-            if (years >= 3 && years <= 5) {
-              matches = true;
-              // Perfect match (4 years) gets highest score
-              score = years === 4 ? 5 : (years === 3 || years === 5 ? 4 : 3);
+            if (years >= 2 && years <= 7) {
+              expScore = 25 - Math.abs(years - 4.5) * 3; // Optimal at 4.5 years
             }
             break;
           case 'senior':
-            if (years >= 6) {
-              matches = true;
-              // More experience gets higher score (capped at 10)
-              score = Math.min(years - 3, 10);
+            if (years >= 5) {
+              expScore = Math.min(15 + years * 2, 25); // Grows with experience
             }
             break;
-          default:
-            matches = true;
         }
-        
-        if (matches) {
-          resume.relevanceScore += score;
-        }
-        
-        return matches;
-      });
-    }
-    
-    // Skills filter with scoring
-    if (selectedSkill) {
-      filtered = filtered.filter(resume => {
-        let matches = false;
-        let score = 0;
-        
-        // Check if skills is an array
-        if (Array.isArray(resume.skills)) {
-          const skillMatches = resume.skills.filter(skill => 
-            skill.toLowerCase().includes(selectedSkill.toLowerCase())
-          );
-          if (skillMatches.length > 0) {
-            matches = true;
-            // Exact match gets higher score
-            const exactMatches = skillMatches.filter(skill => 
-              skill.toLowerCase() === selectedSkill.toLowerCase()
-            );
-            score += exactMatches.length * 8 + (skillMatches.length - exactMatches.length) * 5;
-          }
-        }
-        
-        // If skills is a string, check if it includes the selected skill
-        if (typeof resume.skills === 'string') {
-          if (resume.skills.toLowerCase().includes(selectedSkill.toLowerCase())) {
-            matches = true;
-            // Check for exact match vs partial match
-            const skillsArray = resume.skills.toLowerCase().split(',').map(s => s.trim());
-            const exactMatch = skillsArray.includes(selectedSkill.toLowerCase());
-            score += exactMatch ? 8 : 5;
-          }
-        }
-        
-        if (matches) {
-          resume.relevanceScore += score;
-        }
-        
-        return matches;
-      });
-    }
-    
-    // Role category filter with scoring
-    if (roleCategory) {
-      filtered = filtered.filter(resume => {
-        let matches = false;
-        let score = 0;
-        
-        // Check if recommendedRoles is an array
-        if (Array.isArray(resume.recommendedRoles)) {
-          const roleMatches = resume.recommendedRoles.filter(role => 
-            role.toLowerCase().includes(roleCategory.toLowerCase())
-          );
-          if (roleMatches.length > 0) {
-            matches = true;
-            // Exact match gets higher score
-            const exactMatches = roleMatches.filter(role => 
-              role.toLowerCase() === roleCategory.toLowerCase()
-            );
-            score += exactMatches.length * 10 + (roleMatches.length - exactMatches.length) * 6;
-          }
-        }
-        
-        // Check role/job title
-        if (resume.role && resume.role.toLowerCase().includes(roleCategory.toLowerCase())) {
-          matches = true;
-          const exactMatch = resume.role.toLowerCase() === roleCategory.toLowerCase();
-          score += exactMatch ? 10 : 6;
-        }
-        
-        if (matches) {
-          resume.relevanceScore += score;
-        }
-        
-        return matches;
-        return matches;
-      });
-    }
-    
-    // Sort by relevance score (highest first), then by creation date (newest first)
-    filtered.sort((a, b) => {
-      if (b.relevanceScore !== a.relevanceScore) {
-        return b.relevanceScore - a.relevanceScore;
+
+        totalScore += Math.max(0, expScore);
+        matchDetails.experienceMatch = Math.round((Math.max(0, expScore) / 25) * 100);
       }
-      // If scores are equal, sort by date (newest first)
+
+      // 3. SKILL FILTER SCORING (25 points max)
+      if (selectedSkill) {
+        maxPossibleScore += 25;
+        let skillScore = 0;
+        const skillTerm = selectedSkill.toLowerCase();
+
+        const resumeSkills = extractSkillsFromContent(resume);
+        
+        if (resumeSkills.length > 0) {
+          const exactMatches = resumeSkills.filter(skill => 
+            skill.toLowerCase() === skillTerm
+          );
+          const partialMatches = resumeSkills.filter(skill => 
+            skill.toLowerCase().includes(skillTerm) && skill.toLowerCase() !== skillTerm
+          );
+          
+          // Bonus for having more total skills (shows broader expertise)
+          const skillDensityBonus = Math.min(resumeSkills.length / 5, 2); // Max 2x bonus for 10+ skills
+          
+          let baseScore = (exactMatches.length * 20) + (partialMatches.length * 10);
+          skillScore = Math.min(baseScore * skillDensityBonus, 25);
+        }
+
+        totalScore += skillScore;
+        matchDetails.skillMatch = Math.round((skillScore / 25) * 100);
+      }
+
+      // 4. ROLE CATEGORY SCORING (25 points max)
+      if (roleCategory) {
+        maxPossibleScore += 25;
+        let roleScore = 0;
+        const roleTerm = roleCategory.toLowerCase();
+
+        // Check resume content for role-related keywords
+        const content = (resume.summary || '').toLowerCase();
+        const roleKeywords = {
+          'frontend': ['frontend', 'front-end', 'ui', 'user interface', 'react', 'angular', 'vue', 'html', 'css', 'javascript'],
+          'backend': ['backend', 'back-end', 'server', 'api', 'database', 'node', 'python', 'java', 'sql'],
+          'full stack': ['fullstack', 'full-stack', 'full stack', 'frontend', 'backend', 'react', 'node', 'javascript'],
+          'full stack developer': ['fullstack', 'full-stack', 'full stack', 'frontend', 'backend', 'react', 'node', 'javascript'],
+          'devops': ['devops', 'docker', 'kubernetes', 'aws', 'azure', 'ci/cd', 'jenkins', 'deployment'],
+          'data science': ['data science', 'machine learning', 'ai', 'python', 'pandas', 'tensorflow', 'analytics'],
+          'mobile development': ['mobile', 'android', 'ios', 'react native', 'flutter', 'app development']
+        };
+
+        // Find role-specific keywords in content
+        const relevantKeywords = roleKeywords[roleTerm] || [roleTerm];
+        let keywordMatches = 0;
+        relevantKeywords.forEach(keyword => {
+          if (content.includes(keyword)) {
+            keywordMatches++;
+          }
+        });
+
+        if (keywordMatches > 0) {
+          roleScore = Math.min((keywordMatches / relevantKeywords.length) * 25, 25);
+        }
+
+        // Also check database roles if available
+        let roles = [];
+        if (Array.isArray(resume.recommendedRoles)) {
+          roles = resume.recommendedRoles;
+        } else if (typeof resume.recommendedRoles === 'string') {
+          roles = resume.recommendedRoles.split(',').map(r => r.trim()).filter(r => r);
+        }
+
+        if (roles.length > 0) {
+          const exactMatches = roles.filter(role => 
+            role.toLowerCase().includes(roleTerm)
+          );
+          
+          if (exactMatches.length > 0) {
+            const dbRoleScore = Math.min((exactMatches.length / roles.length) * 20, 20);
+            roleScore = Math.max(roleScore, dbRoleScore);
+          }
+        }
+
+        // Also check job title if available
+        if (resume.job_title && resume.job_title.toLowerCase().includes(roleTerm)) {
+          roleScore = Math.max(roleScore, 20);
+        }
+
+        totalScore += roleScore;
+        matchDetails.roleMatch = Math.round((roleScore / 25) * 100);
+      }
+
+      // Calculate final percentage (0-100%)
+      const finalPercentage = maxPossibleScore > 0 ? Math.round((totalScore / maxPossibleScore) * 100) : 0;
+
+      return {
+        ...resume,
+        matchPercentage: finalPercentage,
+        matchDetails: matchDetails,
+        totalScore: totalScore,
+        maxPossibleScore: maxPossibleScore
+      };
+    });
+
+    // Filter out resumes with 0% match
+    filtered = filtered.filter(resume => resume.matchPercentage > 0);
+
+    // Sort by percentage (highest first), then by total score, then by date
+    filtered.sort((a, b) => {
+      if (b.matchPercentage !== a.matchPercentage) {
+        return b.matchPercentage - a.matchPercentage;
+      }
+      if (b.totalScore !== a.totalScore) {
+        return b.totalScore - a.totalScore;
+      }
       return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     });
-    
+
     setFilteredResumes(filtered);
   };
 
@@ -501,9 +566,49 @@ const ListResumes = () => {
           <div style={{ marginBottom: '1rem' }}>
             <p><strong>Total unique resumes found:</strong> {filteredResumes.length}</p>
             {(searchText || experienceLevel || selectedSkill || roleCategory) && (
-              <p style={{ fontSize: '0.9rem', color: '#6b7280', fontStyle: 'italic' }}>
-                Results are ranked by relevance to your search criteria
-              </p>
+              <>
+                <p style={{ fontSize: '0.9rem', color: '#6b7280', fontStyle: 'italic' }}>
+                  Results are ranked by relevance to your search criteria
+                </p>
+                {(() => {
+                  // Use the same logic to get unique resumes with highest percentages
+                  const uniqueResumeMap = new Map();
+                  filteredResumes.forEach(resume => {
+                    if (resume.pdfName) {
+                      const existingResume = uniqueResumeMap.get(resume.pdfName);
+                      if (!existingResume || (resume.matchPercentage || 0) > (existingResume.matchPercentage || 0)) {
+                        uniqueResumeMap.set(resume.pdfName, resume);
+                      }
+                    }
+                  });
+                  
+                  const uniqueResumes = Array.from(uniqueResumeMap.values());
+                  const highestMatch = uniqueResumes.length > 0 ? Math.max(...uniqueResumes.map(r => r.matchPercentage || 0)) : 0;
+                  const topCandidate = uniqueResumes.find(r => r.matchPercentage === highestMatch);
+                  
+                  if (highestMatch > 0 && topCandidate) {
+                    return (
+                      <div style={{
+                        backgroundColor: '#ecfdf5',
+                        border: '1px solid #10b981',
+                        borderRadius: '6px',
+                        padding: '12px',
+                        marginTop: '8px',
+                        fontSize: '0.9rem'
+                      }}>
+                        <span style={{ color: '#065f46', fontWeight: 'bold' }}>
+                          🏆 Most Eligible: 
+                        </span>
+                        <span style={{ color: '#047857', marginLeft: '5px' }}>
+                          {topCandidate.name || topCandidate.candidateName || topCandidate.pdfName || 'Unknown'} 
+                          ({highestMatch}% match)
+                        </span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+              </>
             )}
           </div>
         )}
@@ -574,32 +679,74 @@ const ListResumes = () => {
         
         {/* Display only truly unique resumes */}
         {resumes.length > 0 && (() => {
-          // Create an array of unique resumes by filename
-          const uniqueFiles = new Set();
-          const uniqueResumes = [];
+          // Create an array of unique resumes by filename, keeping the one with highest percentage
+          const uniqueResumeMap = new Map();
           
-          // First pass - collect only unique filenames
+          // Process each resume and keep only the one with highest percentage for each filename
           filteredResumes.forEach(resume => {
-            if (resume.pdfName && !uniqueFiles.has(resume.pdfName)) {
-              uniqueFiles.add(resume.pdfName);
-              uniqueResumes.push(resume);
+            if (resume.pdfName) {
+              const existingResume = uniqueResumeMap.get(resume.pdfName);
+              if (!existingResume || (resume.matchPercentage || 0) > (existingResume.matchPercentage || 0)) {
+                uniqueResumeMap.set(resume.pdfName, resume);
+              }
             }
+          });
+          
+          // Convert map back to array and sort by match percentage
+          const uniqueResumes = Array.from(uniqueResumeMap.values()).sort((a, b) => {
+            // Sort by match percentage (highest first), then by criteria met, then by date
+            if ((b.matchPercentage || 0) !== (a.matchPercentage || 0)) {
+              return (b.matchPercentage || 0) - (a.matchPercentage || 0);
+            }
+            if ((b.metCriteria || 0) !== (a.metCriteria || 0)) {
+              return (b.metCriteria || 0) - (a.metCriteria || 0);
+            }
+            return new Date(b.created_at || 0) - new Date(a.created_at || 0);
           });
           
           console.log(`Displaying ${uniqueResumes.length} unique resumes`);
           
+          // Find the highest match percentage for highlighting
+          const highestMatchPercentage = uniqueResumes.length > 0 && (searchText || experienceLevel || selectedSkill || roleCategory)
+            ? Math.max(...uniqueResumes.map(resume => resume.matchPercentage || 0))
+            : 0;
+          
           // Return the mapped JSX elements
-          return uniqueResumes.slice(0, 20).map(resume => {
+          return uniqueResumes.slice(0, 20).map((resume, index) => {
             console.log(`Displaying resume ${resume.id} - ${resume.pdfName}`);
+            const isTopCandidate = (searchText || experienceLevel || selectedSkill || roleCategory) && 
+                                   resume.matchPercentage === highestMatchPercentage && 
+                                   highestMatchPercentage > 0;
             return (
             <div key={resume.id} style={{ 
-              border: '1px solid #3b82f6', 
+              border: isTopCandidate ? '3px solid #10b981' : '1px solid #3b82f6', 
               borderRadius: '8px',
               padding: '1.5rem', 
               marginBottom: '1.5rem',
-              backgroundColor: '#f0f9ff',
-              position: 'relative' 
+              backgroundColor: isTopCandidate ? '#ecfdf5' : '#f0f9ff',
+              position: 'relative',
+              boxShadow: isTopCandidate ? '0 10px 25px rgba(16, 185, 129, 0.3)' : 'none',
+              transform: isTopCandidate ? 'scale(1.02)' : 'scale(1)',
+              transition: 'all 0.3s ease'
             }}>
+              {/* Most Eligible Badge */}
+              {isTopCandidate && (
+                <div style={{
+                  position: 'absolute',
+                  top: '-12px',
+                  left: '20px',
+                  backgroundColor: '#10b981',
+                  color: 'white',
+                  padding: '6px 16px',
+                  borderRadius: '20px',
+                  fontSize: '0.85rem',
+                  fontWeight: 'bold',
+                  boxShadow: '0 4px 12px rgba(16, 185, 129, 0.4)',
+                  zIndex: 10
+                }}>
+                  🏆 MOST ELIGIBLE
+                </div>
+              )}
               {/* Delete button */}
               <button 
                 onClick={() => deleteCv(resume.id)} 
@@ -642,20 +789,50 @@ const ListResumes = () => {
                 <span>
                   {resume.name || resume.candidateName || resume.pdfName || 'No Name Available'}
                 </span>
-                {(searchText || experienceLevel || selectedSkill || roleCategory) && resume.relevanceScore > 0 && (
+                {(searchText || experienceLevel || selectedSkill || roleCategory) && resume.matchPercentage > 0 && (
                   <span style={{
-                    fontSize: '0.8rem',
-                    backgroundColor: '#10b981',
+                    fontSize: '0.9rem',
+                    backgroundColor: resume.matchPercentage >= 80 ? '#10b981' : resume.matchPercentage >= 60 ? '#f59e0b' : '#ef4444',
                     color: 'white',
-                    padding: '2px 8px',
-                    borderRadius: '12px',
-                    fontWeight: 'normal',
+                    padding: '4px 10px',
+                    borderRadius: '16px',
+                    fontWeight: 'bold',
                     marginLeft: '10px'
                   }}>
-                    {resume.relevanceScore}★
+                    {resume.matchPercentage}% Match
                   </span>
                 )}
               </h3>
+              
+              {/* Match Details */}
+              {(searchText || experienceLevel || selectedSkill || roleCategory) && resume.matchPercentage > 0 && (
+                <div style={{
+                  backgroundColor: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                  padding: '10px',
+                  marginBottom: '10px',
+                  fontSize: '0.85rem'
+                }}>
+                  <div style={{ fontWeight: 'bold', color: '#374151', marginBottom: '5px' }}>
+                    Match Breakdown ({resume.totalScore}/{resume.maxPossibleScore} points):
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '5px' }}>
+                    {searchText && resume.matchDetails && resume.matchDetails.textMatch > 0 && (
+                      <div>Text Search: <span style={{color: '#10b981', fontWeight: 'bold'}}>{resume.matchDetails.textMatch}%</span></div>
+                    )}
+                    {experienceLevel && resume.matchDetails && resume.matchDetails.experienceMatch > 0 && (
+                      <div>Experience: <span style={{color: '#10b981', fontWeight: 'bold'}}>{resume.matchDetails.experienceMatch}%</span></div>
+                    )}
+                    {selectedSkill && resume.matchDetails && resume.matchDetails.skillMatch > 0 && (
+                      <div>Skill Match: <span style={{color: '#10b981', fontWeight: 'bold'}}>{resume.matchDetails.skillMatch}%</span></div>
+                    )}
+                    {roleCategory && resume.matchDetails && resume.matchDetails.roleMatch > 0 && (
+                      <div>Role Match: <span style={{color: '#10b981', fontWeight: 'bold'}}>{resume.matchDetails.roleMatch}%</span></div>
+                    )}
+                  </div>
+                </div>
+              )}
               
               <div style={{ marginBottom: '0.75rem' }}>
                 <strong>Years of Experience:</strong> {

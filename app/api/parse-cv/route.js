@@ -126,12 +126,12 @@ export async function POST(request) {
             console.warn('Could not check or alter table:', alterError.message);
           }
           
-          // Check for existing file for this user
+          // Check for existing file for this user (including content hash to prevent true duplicates)
           let existing = [];
           try {
             [existing] = await connection.query(
-              `SELECT id FROM cvs WHERE file_name = ? AND user_id = ? LIMIT 1`,
-              [file.name, userId]
+              `SELECT id FROM cvs WHERE (file_name = ? OR content_hash = ?) AND user_id = ? LIMIT 1`,
+              [file.name, contentHash, userId]
             );
           } catch (queryError) {
             console.error('Error checking for existing record:', queryError);
@@ -140,6 +140,11 @@ export async function POST(request) {
           
           let cvId;
           if (!existing || existing.length === 0) {
+            // Ensure user_id is not null before inserting
+            if (!userId) {
+              throw new Error('User ID is required for CV storage');
+            }
+            
             // Insert new record with user_id
             const [result] = await connection.query(
               `INSERT INTO cvs (file_name, summary, category, user_id, content_hash) VALUES (?, ?, ?, ?, ?)`,

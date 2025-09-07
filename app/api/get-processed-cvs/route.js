@@ -28,13 +28,13 @@ export async function GET(request) {
     
     console.log('Connected to database in get-processed-cvs');
     
-    // Modified query to filter by user_id
-    // Only fetch CVs belonging to the current user
+    // Modified query to filter by user_id and exclude old entries with null user_id
+    // Only fetch CVs belonging to the current user and exclude legacy data
     const [rows] = await connection.query(`
       SELECT * FROM cvs
-      WHERE user_id = ? AND id IN (
+      WHERE user_id = ? AND user_id IS NOT NULL AND id IN (
         SELECT MAX(id) FROM cvs
-        WHERE user_id = ?
+        WHERE user_id = ? AND user_id IS NOT NULL
         GROUP BY file_name
       )
       ORDER BY created_at DESC

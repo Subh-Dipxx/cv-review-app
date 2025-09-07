@@ -205,6 +205,7 @@ export async function POST(request) {
         const roleSkillsMap = {
           "Frontend Developer": ["React", "Angular", "Vue", "HTML", "CSS", "Javascript", "Typescript"],
           "Backend Developer": ["Node", "Express", "Django", "Flask", "Spring", "Java", "Python", "SQL", "Dotnet", "PHP", "Ruby"],
+          "Full Stack Developer": ["React", "Angular", "Vue", "HTML", "CSS", "Javascript", "Typescript", "Node", "Express", "Django", "Flask", "Spring", "Java", "Python", "SQL", "MongoDB", "PostgreSQL"],
           "Data Engineer": ["Python", "SQL", "Docker", "Kubernetes", "AWS", "Azure", "GCP"],
           "Project Manager": ["Agile", "Scrum", "Git", "CI/CD"],
         };
