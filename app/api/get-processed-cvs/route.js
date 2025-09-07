@@ -50,19 +50,30 @@ export async function GET(request) {
       const skills = row.skills ? row.skills.split(',').map(s => s.trim()) : [];
       
       let recommendedRoles = [];
-      if (row.recommended_roles) {
+      if (row.recommended_roles && row.recommended_roles.trim() && row.recommended_roles !== 'No roles') {
         try {
           // Check if it's a JSON array string
           if (row.recommended_roles.startsWith('[') && row.recommended_roles.endsWith(']')) {
             recommendedRoles = JSON.parse(row.recommended_roles);
           } else {
-            // Otherwise, split by commas
-            recommendedRoles = row.recommended_roles.split(',').map(r => r.trim());
+            // Otherwise, split by commas and filter out empty values
+            recommendedRoles = row.recommended_roles
+              .split(',')
+              .map(r => r.trim())
+              .filter(r => r && r !== 'No roles' && r !== 'General' && r !== '');
           }
         } catch (e) {
           console.error('Error parsing roles:', e);
-          recommendedRoles = row.recommended_roles.split(',').map(r => r.trim());
+          recommendedRoles = row.recommended_roles
+            .split(',')
+            .map(r => r.trim())
+            .filter(r => r && r !== 'No roles' && r !== 'General' && r !== '');
         }
+      }
+      
+      // If still no recommended roles, show a helpful message
+      if (recommendedRoles.length === 0) {
+        recommendedRoles = ['Click "Process CV" to generate roles'];
       }
       
       // Extract name from summary if name field is empty
@@ -110,7 +121,7 @@ export async function GET(request) {
         role: row.job_title || 'Not Specified',
         skills: skills,
         summary: row.summary,
-        recommendedRoles: recommendedRoles.length > 0 ? recommendedRoles : ['General']
+        recommendedRoles: recommendedRoles
       };
     });
     

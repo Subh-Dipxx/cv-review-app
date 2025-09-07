@@ -245,6 +245,58 @@ export async function POST(request) {
           role: category // Add role field for frontend filter
         });
         
+        // Save the extracted data to the database
+        try {
+          const pool = require('../../lib/db').default;
+          const connection = await pool.getConnection();
+          
+          // Find the CV record by filename and user_id (assuming user_id is available in context)
+          const [cvRows] = await connection.query(
+            'SELECT id FROM cvs WHERE file_name = ? ORDER BY id DESC LIMIT 1',
+            [cv.fileName]
+          );
+          
+          if (cvRows.length > 0) {
+            const cvId = cvRows[0].id;
+            
+            // Format the recommended roles for storage
+            const formattedRoles = recommendedRoles.map(r => 
+              typeof r === 'object' ? r.role : r
+            ).join(', ');
+            
+            // Update the CV record with the processed data
+            await connection.query(
+              `UPDATE cvs SET 
+                 name = ?, 
+                 email = ?, 
+                 phone = ?, 
+                 professional_summary = ?, 
+                 years_of_experience = ?, 
+                 job_title = ?, 
+                 skills = ?, 
+                 recommended_roles = ? 
+               WHERE id = ?`,
+              [
+                name || 'Unknown', 
+                email || 'No email', 
+                phoneNumber || 'No phone', 
+                education || 'No education', 
+                yearsOfExperience || 0, 
+                category || 'No role',
+                skills.join(', '),
+                formattedRoles,
+                cvId
+              ]
+            );
+            
+            console.log(`Updated CV ${cvId} with processed data including roles: ${formattedRoles}`);
+          }
+          
+          connection.release();
+        } catch (dbError) {
+          console.error(`Error saving processed data for ${cv.fileName}:`, dbError.message);
+        }
+        
       } catch (cvError) {
         console.error(`Error processing CV ${cv.fileName}:`, cvError.message);
         categorized.push({
