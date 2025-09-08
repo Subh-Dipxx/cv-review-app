@@ -5,7 +5,8 @@ const ListResumes = () => {
   // Search and filter states
   const [searchText, setSearchText] = useState('');
   const [experienceLevel, setExperienceLevel] = useState('');
-  const [selectedSkill, setSelectedSkill] = useState('');
+  const [selectedSkills, setSelectedSkills] = useState([]);
+  const [showSkillsDropdown, setShowSkillsDropdown] = useState(false);
   const [roleCategory, setRoleCategory] = useState('');
   
   // Resume data states
@@ -145,7 +146,7 @@ const ListResumes = () => {
 
   // Advanced filter resumes with unbiased percentage-based ranking
   const filterResumes = () => {
-    if (!searchText && !experienceLevel && !selectedSkill && !roleCategory) {
+    if (!searchText && !experienceLevel && selectedSkills.length === 0 && !roleCategory) {
       // No filters applied, just sort by date
       const sorted = [...resumes].sort((a, b) => 
         new Date(b.created_at || 0) - new Date(a.created_at || 0)
@@ -184,7 +185,9 @@ const ListResumes = () => {
         const resumeSkills = extractSkillsFromContent(resume);
         if (resumeSkills.length > 0) {
           const matchingSkills = resumeSkills.filter(skill => 
-            skill.toLowerCase().includes(searchTerm)
+            selectedSkills.some(selectedSkill => 
+              skill.toLowerCase().includes(selectedSkill.toLowerCase())
+            )
           );
           if (matchingSkills.length > 0) {
             // Give more weight if candidate has more total skills
@@ -244,26 +247,34 @@ const ListResumes = () => {
       }
 
       // 3. SKILL FILTER SCORING (25 points max)
-      if (selectedSkill) {
+      if (selectedSkills.length > 0) {
         maxPossibleScore += 25;
         let skillScore = 0;
-        const skillTerm = selectedSkill.toLowerCase();
-
+        
         const resumeSkills = extractSkillsFromContent(resume);
         
         if (resumeSkills.length > 0) {
-          const exactMatches = resumeSkills.filter(skill => 
-            skill.toLowerCase() === skillTerm
-          );
-          const partialMatches = resumeSkills.filter(skill => 
-            skill.toLowerCase().includes(skillTerm) && skill.toLowerCase() !== skillTerm
-          );
+          let totalSkillMatches = 0;
+          
+          selectedSkills.forEach(selectedSkill => {
+            const skillTerm = selectedSkill.toLowerCase();
+            const exactMatches = resumeSkills.filter(skill => 
+              skill.toLowerCase() === skillTerm
+            );
+            const partialMatches = resumeSkills.filter(skill => 
+              skill.toLowerCase().includes(skillTerm) && skill.toLowerCase() !== skillTerm
+            );
+            
+            // Score for this specific skill
+            totalSkillMatches += (exactMatches.length * 2) + (partialMatches.length * 1);
+          });
           
           // Bonus for having more total skills (shows broader expertise)
-          const skillDensityBonus = Math.min(resumeSkills.length / 5, 2); // Max 2x bonus for 10+ skills
+          const skillDensityBonus = Math.min(resumeSkills.length / 5, 2);
           
-          let baseScore = (exactMatches.length * 20) + (partialMatches.length * 10);
-          skillScore = Math.min(baseScore * skillDensityBonus, 25);
+          // Calculate score based on how many selected skills were found
+          const matchRatio = Math.min(totalSkillMatches / selectedSkills.length, 2);
+          skillScore = Math.min(matchRatio * 12.5 * skillDensityBonus, 25);
         }
 
         totalScore += skillScore;
@@ -396,7 +407,7 @@ const ListResumes = () => {
 
   useEffect(() => {
     filterResumes();
-  }, [resumes, searchText, experienceLevel, selectedSkill, roleCategory]);
+  }, [resumes, searchText, experienceLevel, selectedSkills, roleCategory]);
   
   // Don't automatically fetch resumes on component mount
   // User must click the "List" button explicitly
@@ -502,22 +513,102 @@ const ListResumes = () => {
               <option value="senior">Senior (6+ years)</option>
             </select>
             
-            {/* Skills dropdown */}
-            <select
-              value={selectedSkill}
-              onChange={e => setSelectedSkill(e.target.value)}
-              style={{
-                padding: '0.5rem',
-                borderRadius: '0.375rem',
-                border: '1px solid #d1d5db',
-                backgroundColor: selectedSkill ? '#ebf5ff' : 'white'
-              }}
-            >
-              <option value="">Select Skill</option>
-              {skillOptions.map(skill => (
-                <option key={skill} value={skill}>{skill}</option>
-              ))}
-            </select>
+            {/* Skills dropdown button */}
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setShowSkillsDropdown(!showSkillsDropdown)}
+                style={{
+                  padding: '0.5rem 1rem',
+                  borderRadius: '0.375rem',
+                  border: '1px solid #d1d5db',
+                  backgroundColor: selectedSkills.length > 0 ? '#ebf5ff' : 'white',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  minWidth: '150px'
+                }}
+              >
+                <span>
+                  {selectedSkills.length > 0 
+                    ? `Skills (${selectedSkills.length})` 
+                    : 'Select Skills'
+                  }
+                </span>
+                <span style={{ marginLeft: '0.5rem' }}>
+                  {showSkillsDropdown ? '▲' : '▼'}
+                </span>
+              </button>
+              
+              {/* Skills dropdown menu */}
+              {showSkillsDropdown && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  zIndex: 1000,
+                  border: '1px solid #d1d5db',
+                  borderRadius: '0.375rem',
+                  backgroundColor: 'white',
+                  boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                  padding: '0.5rem',
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                  marginTop: '2px'
+                }}>
+                  <div style={{ fontWeight: 'bold', marginBottom: '0.5rem', fontSize: '0.9rem', borderBottom: '1px solid #e5e7eb', paddingBottom: '0.5rem' }}>
+                    Select Skills ({selectedSkills.length} selected)
+                  </div>
+                  {skillOptions.map(skill => (
+                    <label key={skill} style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      marginBottom: '0.25rem',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                      padding: '0.25rem',
+                      borderRadius: '0.25rem',
+                      ':hover': { backgroundColor: '#f3f4f6' }
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedSkills.includes(skill)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedSkills([...selectedSkills, skill]);
+                          } else {
+                            setSelectedSkills(selectedSkills.filter(s => s !== skill));
+                          }
+                        }}
+                        style={{ marginRight: '0.5rem' }}
+                      />
+                      {skill}
+                    </label>
+                  ))}
+                  
+                  {/* Clear all skills button */}
+                  {selectedSkills.length > 0 && (
+                    <button
+                      onClick={() => setSelectedSkills([])}
+                      style={{
+                        width: '100%',
+                        padding: '0.5rem',
+                        marginTop: '0.5rem',
+                        backgroundColor: '#fee2e2',
+                        border: '1px solid #fecaca',
+                        borderRadius: '0.25rem',
+                        color: '#b91c1c',
+                        cursor: 'pointer',
+                        fontSize: '0.8rem'
+                      }}
+                    >
+                      Clear All Skills
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
             
             {/* Role category dropdown */}
             <select
@@ -537,12 +628,12 @@ const ListResumes = () => {
             </select>
             
             {/* Clear filters button - only show if any filter is active */}
-            {(searchText || experienceLevel || selectedSkill || roleCategory) && (
+            {(searchText || experienceLevel || selectedSkills.length > 0 || roleCategory) && (
               <button 
                 onClick={() => {
                   setSearchText('');
                   setExperienceLevel('');
-                  setSelectedSkill('');
+                  setSelectedSkills([]);
                   setRoleCategory('');
                 }}
                 style={{
@@ -565,7 +656,7 @@ const ListResumes = () => {
         {resumes.length > 0 && (
           <div style={{ marginBottom: '1rem' }}>
             <p><strong>Total unique resumes found:</strong> {filteredResumes.length}</p>
-            {(searchText || experienceLevel || selectedSkill || roleCategory) && (
+            {(searchText || experienceLevel || selectedSkills.length > 0 || roleCategory) && (
               <>
                 <p style={{ fontSize: '0.9rem', color: '#6b7280', fontStyle: 'italic' }}>
                   Results are ranked by relevance to your search criteria
@@ -707,14 +798,14 @@ const ListResumes = () => {
           console.log(`Displaying ${uniqueResumes.length} unique resumes`);
           
           // Find the highest match percentage for highlighting
-          const highestMatchPercentage = uniqueResumes.length > 0 && (searchText || experienceLevel || selectedSkill || roleCategory)
+          const highestMatchPercentage = uniqueResumes.length > 0 && (searchText || experienceLevel || selectedSkills.length > 0 || roleCategory)
             ? Math.max(...uniqueResumes.map(resume => resume.matchPercentage || 0))
             : 0;
           
           // Return the mapped JSX elements
           return uniqueResumes.slice(0, 20).map((resume, index) => {
             console.log(`Displaying resume ${resume.id} - ${resume.pdfName}`);
-            const isTopCandidate = (searchText || experienceLevel || selectedSkill || roleCategory) && 
+            const isTopCandidate = (searchText || experienceLevel || selectedSkills.length > 0 || roleCategory) && 
                                    resume.matchPercentage === highestMatchPercentage && 
                                    highestMatchPercentage > 0;
             return (
@@ -789,7 +880,7 @@ const ListResumes = () => {
                 <span>
                   {resume.name || resume.candidateName || resume.pdfName || 'No Name Available'}
                 </span>
-                {(searchText || experienceLevel || selectedSkill || roleCategory) && resume.matchPercentage > 0 && (
+                {(searchText || experienceLevel || selectedSkills.length > 0 || roleCategory) && resume.matchPercentage > 0 && (
                   <span style={{
                     fontSize: '0.9rem',
                     backgroundColor: resume.matchPercentage >= 80 ? '#10b981' : resume.matchPercentage >= 60 ? '#f59e0b' : '#ef4444',
@@ -805,7 +896,7 @@ const ListResumes = () => {
               </h3>
               
               {/* Match Details */}
-              {(searchText || experienceLevel || selectedSkill || roleCategory) && resume.matchPercentage > 0 && (
+              {(searchText || experienceLevel || selectedSkills.length > 0 || roleCategory) && resume.matchPercentage > 0 && (
                 <div style={{
                   backgroundColor: '#f8fafc',
                   border: '1px solid #e2e8f0',
@@ -824,7 +915,7 @@ const ListResumes = () => {
                     {experienceLevel && resume.matchDetails && resume.matchDetails.experienceMatch > 0 && (
                       <div>Experience: <span style={{color: '#10b981', fontWeight: 'bold'}}>{resume.matchDetails.experienceMatch}%</span></div>
                     )}
-                    {selectedSkill && resume.matchDetails && resume.matchDetails.skillMatch > 0 && (
+                    {selectedSkills.length > 0 && resume.matchDetails && resume.matchDetails.skillMatch > 0 && (
                       <div>Skill Match: <span style={{color: '#10b981', fontWeight: 'bold'}}>{resume.matchDetails.skillMatch}%</span></div>
                     )}
                     {roleCategory && resume.matchDetails && resume.matchDetails.roleMatch > 0 && (
