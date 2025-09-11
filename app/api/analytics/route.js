@@ -22,29 +22,52 @@ export async function GET() {
       });
     }
 
-    // Get engineer types distribution
+    // Get engineer types distribution from recommended_roles
     const [engineerTypesResult] = await pool.query(`
-      SELECT category, COUNT(*) as count 
+      SELECT recommended_roles
       FROM cvs 
-      WHERE category IS NOT NULL 
-      GROUP BY category 
-      ORDER BY count DESC
+      WHERE recommended_roles IS NOT NULL AND recommended_roles != '' AND recommended_roles != 'No roles'
     `);
 
     const engineerTypes = {};
     engineerTypesResult.forEach(row => {
-      engineerTypes[row.category] = row.count;
+      try {
+        if (row.recommended_roles) {
+          let roles = [];
+          
+          // Check if it's JSON array or comma-separated string
+          if (row.recommended_roles.startsWith('[')) {
+            // Try to parse as JSON
+            roles = JSON.parse(row.recommended_roles);
+          } else {
+            // Treat as comma-separated string
+            roles = row.recommended_roles.split(',').map(r => r.trim());
+          }
+          
+          if (Array.isArray(roles)) {
+            roles.forEach(roleItem => {
+              const roleName = typeof roleItem === 'string' ? roleItem : roleItem.role;
+              if (roleName && roleName !== 'No roles') {
+                engineerTypes[roleName] = (engineerTypes[roleName] || 0) + 1;
+              }
+            });
+          }
+        }
+      } catch (e) {
+        // Skip invalid data
+        console.log('Invalid recommended_roles data:', row.recommended_roles);
+      }
     });
 
-    // Get recent uploads (last 7 days)
+    // Get recent uploads (last 7 days) using created_at field
     const [recentUploadsResult] = await pool.query(`
       SELECT 
-        DATE_FORMAT(uploaded_at, '%a') as day_name,
-        DATE(uploaded_at) as upload_date,
+        DATE_FORMAT(created_at, '%a') as day_name,
+        DATE(created_at) as upload_date,
         COUNT(*) as count 
       FROM cvs 
-      WHERE uploaded_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-      GROUP BY DATE(uploaded_at), DATE_FORMAT(uploaded_at, '%a')
+      WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+      GROUP BY DATE(created_at), DATE_FORMAT(created_at, '%a')
       ORDER BY upload_date
     `);
 
@@ -54,8 +77,18 @@ export async function GET() {
     }));
 
     // Get processing stats
-    const [successfulResult] = await pool.query('SELECT COUNT(*) as count FROM cvs WHERE category IS NOT NULL');
-    const [failedResult] = await pool.query('SELECT COUNT(*) as count FROM cvs WHERE category IS NULL');
+    const [successfulResult] = await pool.query(`
+      SELECT COUNT(*) as count 
+      FROM cvs 
+      WHERE name IS NOT NULL AND name != '' AND name != 'Unknown'
+        AND recommended_roles IS NOT NULL AND recommended_roles != '' AND recommended_roles != 'No roles'
+    `);
+    const [failedResult] = await pool.query(`
+      SELECT COUNT(*) as count 
+      FROM cvs 
+      WHERE (name IS NULL OR name = '' OR name = 'Unknown') 
+        OR (recommended_roles IS NULL OR recommended_roles = '' OR recommended_roles = 'No roles')
+    `);
     
     const analytics = {
       totalResumes,

@@ -312,25 +312,50 @@ export async function POST(request) {
           education = college;
         }
         
-        // Generate sample recommended roles with match percentages
-        const roleSkillsMap = {
-          "Frontend Developer": ["React", "Angular", "Vue", "HTML", "CSS", "Javascript", "Typescript"],
-          "Backend Developer": ["Node", "Express", "Django", "Flask", "Spring", "Java", "Python", "SQL", "Dotnet", "PHP", "Ruby"],
-          "Full Stack Developer": ["React", "Angular", "Vue", "HTML", "CSS", "Javascript", "Typescript", "Node", "Express", "Django", "Flask", "Spring", "Java", "Python", "SQL", "MongoDB", "PostgreSQL"],
-          "Data Engineer": ["Python", "SQL", "Docker", "Kubernetes", "AWS", "Azure", "GCP"],
-          "Project Manager": ["Agile", "Scrum", "Git", "CI/CD"],
-        };
+        // Generate recommended roles based on actual extracted skills
         const recommendedRoles = [];
-        Object.entries(roleSkillsMap).forEach(([role, relevantSkills]) => {
-          const matchedSkills = skills.filter(skill => relevantSkills.includes(skill));
-          if (matchedSkills.length > 0) {
-            // Calculate percentage match
-            const percent = Math.round((matchedSkills.length / relevantSkills.length) * 100);
-            recommendedRoles.push({ role, percent });
-          }
-        });
-        if (recommendedRoles.length === 0) {
-          recommendedRoles.push({ role: "General Developer", percent: 50 });
+        
+        if (skills.length > 0) {
+          // Define role skill mappings based on actual skill matches
+          const roleSkillsMap = {
+            "Frontend Developer": ["React", "Angular", "Vue", "HTML", "CSS", "Javascript", "Typescript", "jQuery"],
+            "Backend Developer": ["Node", "Express", "Django", "Flask", "Spring", "Java", "Python", "SQL", "Dotnet", "PHP", "Ruby", "C#"],
+            "Full Stack Developer": ["React", "Angular", "Vue", "HTML", "CSS", "Javascript", "Typescript", "Node", "Express", "Python", "SQL"],
+            "Data Engineer": ["Python", "SQL", "Pandas", "NumPy", "Docker", "Kubernetes", "AWS", "Azure", "GCP", "BigQuery"],
+            "Mobile Developer": ["React Native", "Flutter", "Swift", "Kotlin", "Java", "Android", "iOS"],
+            "DevOps Engineer": ["Docker", "Kubernetes", "AWS", "Azure", "GCP", "Jenkins", "Git", "CI/CD", "Linux"],
+            "Software Engineer": ["Java", "Python", "C++", "C#", "Javascript", "Git", "SQL"],
+          };
+          
+          // Calculate role matches based on actual skills
+          Object.entries(roleSkillsMap).forEach(([role, relevantSkills]) => {
+            const matchedSkills = skills.filter(skill => 
+              relevantSkills.some(relevantSkill => 
+                skill.toLowerCase().includes(relevantSkill.toLowerCase()) ||
+                relevantSkill.toLowerCase().includes(skill.toLowerCase())
+              )
+            );
+            
+            if (matchedSkills.length > 0) {
+              // Calculate realistic percentage based on skill overlap
+              const percent = Math.min(95, Math.round((matchedSkills.length / relevantSkills.length) * 100) + 10);
+              recommendedRoles.push({ role, percent });
+            }
+          });
+          
+          // Sort by percentage match
+          recommendedRoles.sort((a, b) => b.percent - a.percent);
+          
+          // Limit to top 3 matches
+          recommendedRoles.splice(3);
+        }
+        
+        // Only add fallback if no roles matched AND we have some skills
+        if (recommendedRoles.length === 0 && skills.length > 0) {
+          recommendedRoles.push({ role: "Software Developer", percent: 60 });
+        } else if (recommendedRoles.length === 0) {
+          // No skills detected, provide general role
+          recommendedRoles.push({ role: "General Candidate", percent: 40 });
         }
 
         // Create comprehensive summary with all requested fields
@@ -418,16 +443,14 @@ export async function POST(request) {
           // Find the CV record by filename and user_id (assuming user_id is available in context)
           const [cvRows] = await connection.query(
             'SELECT id FROM cvs WHERE file_name = ? ORDER BY id DESC LIMIT 1',
-            [cv.fileName]
+            [file.name]
           );
           
           if (cvRows.length > 0) {
             const cvId = cvRows[0].id;
             
-            // Format the recommended roles for storage
-            const formattedRoles = recommendedRoles.map(r => 
-              typeof r === 'object' ? r.role : r
-            ).join(', ');
+            // Format the recommended roles for storage as JSON
+            const formattedRoles = JSON.stringify(recommendedRoles);
             
             // Update the CV record with the processed data
             await connection.query(
@@ -455,6 +478,30 @@ export async function POST(request) {
             );
             
             console.log(`Updated CV ${cvId} with processed data including roles: ${formattedRoles}`);
+          } else {
+            // Create new CV record if it doesn't exist
+            const formattedRoles = JSON.stringify(recommendedRoles);
+            
+            const [insertResult] = await connection.query(
+              `INSERT INTO cvs (file_name, name, email, phone, professional_summary, years_of_experience, job_title, skills, recommended_roles, category, summary, user_id) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                file.name,
+                name || 'Unknown', 
+                email || 'No email', 
+                phoneNumber || 'No phone', 
+                education || 'No education', 
+                yearsOfExperience || 0, 
+                category || 'No role',
+                skills.join(', '),
+                formattedRoles,
+                category,
+                `CV analysis for ${file.name}`,
+                'demo-user'
+              ]
+            );
+            
+            console.log(`Created new CV ${insertResult.insertId} with processed data including roles: ${formattedRoles}`);
           }
           
           connection.release();

@@ -88,61 +88,29 @@ export default function DashboardPage() {
         const data = await response.json();
         setAnalytics(data);
       } else {
-        // Fallback with mock data for demonstration
+        // Set empty analytics on API failure
         setAnalytics({
-          totalResumes: 45,
-          engineerTypes: {
-            'Software Engineer': 12,
-            'Frontend Developer': 8,
-            'Backend Developer': 6,
-            'Full Stack Developer': 10,
-            'Data Engineer': 4,
-            'DevOps Engineer': 3,
-            'Mobile Developer': 2
-          },
-          recentUploads: [
-            { date: 'Mon', count: 5 },
-            { date: 'Tue', count: 8 },
-            { date: 'Wed', count: 3 },
-            { date: 'Thu', count: 12 },
-            { date: 'Fri', count: 7 },
-            { date: 'Sat', count: 4 },
-            { date: 'Sun', count: 6 }
-          ],
+          totalResumes: 0,
+          engineerTypes: {},
+          recentUploads: [],
           processingStats: {
-            successful: 42,
-            failed: 2,
-            pending: 1
+            successful: 0,
+            failed: 0,
+            pending: 0
           }
         });
       }
     } catch (error) {
       console.error('Failed to fetch analytics:', error);
-      // Use mock data on error
+      // Set empty analytics on error - no fake data
       setAnalytics({
-        totalResumes: 45,
-        engineerTypes: {
-          'Software Engineer': 12,
-          'Frontend Developer': 8,
-          'Backend Developer': 6,
-          'Full Stack Developer': 10,
-          'Data Engineer': 4,
-          'DevOps Engineer': 3,
-          'Mobile Developer': 2
-        },
-        recentUploads: [
-          { date: 'Mon', count: 5 },
-          { date: 'Tue', count: 8 },
-          { date: 'Wed', count: 3 },
-          { date: 'Thu', count: 12 },
-          { date: 'Fri', count: 7 },
-          { date: 'Sat', count: 4 },
-          { date: 'Sun', count: 6 }
-        ],
+        totalResumes: 0,
+        engineerTypes: {},
+        recentUploads: [],
         processingStats: {
-          successful: 42,
-          failed: 2,
-          pending: 1
+          successful: 0,
+          failed: 0,
+          pending: 0
         }
       });
     } finally {

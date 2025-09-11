@@ -344,6 +344,24 @@ export default function ProcessCVsPage() {
                           </span>
                         </div>
                       )}
+                      
+                      {(result.email || result.summary?.email) && (
+                        <div className="flex items-start justify-between">
+                          <span className="text-gray-500">Email:</span>
+                          <span className="font-medium text-gray-900 text-right text-xs max-w-32 truncate" title={result.email || result.summary?.email}>
+                            {result.email || result.summary?.email}
+                          </span>
+                        </div>
+                      )}
+                      
+                      {(result.phoneNumber || result.contact || result.summary?.contact) && (
+                        <div className="flex items-start justify-between">
+                          <span className="text-gray-500">Phone:</span>
+                          <span className="font-medium text-gray-900 text-right text-xs max-w-32 truncate" title={result.phoneNumber || result.contact || result.summary?.contact}>
+                            {result.phoneNumber || result.contact || result.summary?.contact}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     {result.recommendedRoles && result.recommendedRoles.length > 0 && (
