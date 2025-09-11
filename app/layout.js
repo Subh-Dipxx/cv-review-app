@@ -7,6 +7,7 @@ import {
   UserButton,
 } from "@clerk/nextjs";
 import "./globals.css";
+import { AuthProvider } from "./context/AuthContext";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -20,6 +21,7 @@ export default function RootLayout({ children }) {
     <ClerkProvider>
       <html lang="en">
         <body className={`${inter.className} antialiased bg-gray-50`}>
+          <AuthProvider>
           {/* Professional Header */}
           <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-50">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -94,6 +96,7 @@ export default function RootLayout({ children }) {
               </div>
             </div>
           </footer>
+          </AuthProvider>
         </body>
       </html>
     </ClerkProvider>

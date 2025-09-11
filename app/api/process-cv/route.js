@@ -7,42 +7,62 @@ export async function POST(request) {
   console.log("POST /api/process-cv - Request received");
   
   try {
-    // Parse request body safely
-    let requestBody;
-    try {
-      requestBody = await request.json();
-    } catch (jsonError) {
-      return NextResponse.json({ 
-        error: `Invalid JSON in request: ${jsonError.message}` 
-      }, { status: 400 });
-    }
-
-    const { results } = requestBody;
+    // Parse FormData (for file uploads)
+    const formData = await request.formData();
+    const files = formData.getAll('files');
     
-    if (!results || !Array.isArray(results)) {
+    if (!files || files.length === 0) {
       return NextResponse.json({ 
-        error: "Invalid input: results must be an array" 
+        error: "No files provided" 
       }, { status: 400 });
     }
 
-    // Process each CV without requiring database
+    // Process each CV file
     const categorized = [];
     
-    for (const cv of results) {
+    for (const file of files) {
       try {
-        console.log(`Processing CV: ${cv.fileName}`);
-        // Skip invalid data
-        if (!cv || typeof cv.fileName !== "string" || typeof cv.text !== "string" || cv.text.trim().length === 0) {
+        console.log(`Processing CV: ${file.name}`);
+        
+        // Read file content
+        const fileBuffer = await file.arrayBuffer();
+        let actualText = "";
+        
+        if (file.type === 'application/pdf') {
+          try {
+            // Use the PDF parser
+            const parsePdf = require('../../lib/pdf-parser');
+            const buffer = Buffer.from(fileBuffer);
+            const pdfData = await parsePdf(buffer);
+            actualText = pdfData.text;
+            console.log(`Extracted ${actualText.length} characters from PDF`);
+          } catch (pdfError) {
+            console.error('PDF parsing error:', pdfError);
+            categorized.push({
+              fileName: file.name,
+              category: "Error", 
+              summary: `PDF parsing failed: ${pdfError.message}`,
+              error: "Failed to extract text from PDF file"
+            });
+            continue;
+          }
+        } else {
+          // For text files, decode normally
+          actualText = new TextDecoder().decode(fileBuffer);
+        }
+        
+        // Skip if no text content
+        if (!actualText || actualText.trim().length === 0) {
           categorized.push({
-            fileName: cv.fileName || "Unknown",
+            fileName: file.name,
             category: "Error",
-            summary: "Invalid CV data",
+            summary: "Could not extract text from file - file appears to be empty",
           });
           continue;
         }
 
-        // Basic CV analysis (without AI)
-        const text = cv.text.toLowerCase();
+        // Basic CV analysis
+        const text = actualText.toLowerCase();
         let category = "Other";
         
         // Simple rule-based categorization
@@ -62,7 +82,7 @@ export async function POST(request) {
 
         // Extract name from CV
         let name = "Not specified";
-        const textLines = cv.text.split('\n');
+        const textLines = actualText.split('\n');
         
         // Try to find name from first few lines (usually at the top)
         for (let i = 0; i < Math.min(5, textLines.length); i++) {
@@ -80,82 +100,78 @@ export async function POST(request) {
           }
         }
 
-        // Extract email
+        // Extract email - improved
         let email = "";
-        const emailMatch = cv.text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g);
+        const emailMatch = actualText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g);
         if (emailMatch && emailMatch.length > 0) {
-          // Only display if it does NOT look like a phone number
-          email = emailMatch.find(e => !/\d{10,}/.test(e)) || "";
+          email = emailMatch[0]; // Take the first valid email
         }
 
-        // Extract phone number (improved to avoid email conflicts)
+        // Extract phone number - improved patterns
         let phoneNumber = "";
         const phonePatterns = [
-          /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g,
-          /(?:\+91|91)?[-.\s]?\d{5}[-.\s]?\d{5}\b/g,
-          /(?:\+?\d{1,3}[-.\s]?)?\d{10}\b/g
+          /\+\d{1,3}[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/g, // International format
+          /\(\d{3}\)\s?\d{3}[-.\s]?\d{4}/g, // (123) 456-7890
+          /\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/g, // 123-456-7890
+          /\+91[-.\s]?\d{5}[-.\s]?\d{5}/g, // Indian format
+          /\d{10}/g // Simple 10 digits
         ];
-        // Find the line containing 'contact' and extract phone number from subsequent lines
-        let contactIndex = textLines.findIndex(line => line.toLowerCase().includes('contact'));
-        if (contactIndex !== -1) {
-          for (let i = contactIndex + 1; i < textLines.length; i++) {
-            const line = textLines[i];
-            if (line.includes('@')) continue;
-            if (line.toLowerCase().includes('email')) continue;
-            if (line.toLowerCase().includes('www') || line.toLowerCase().includes('http')) continue;
-            if (/[a-zA-Z]/.test(line)) continue;
-            for (const pattern of phonePatterns) {
-              const phoneMatches = line.match(pattern);
-              if (phoneMatches && phoneMatches.length > 0) {
-                const phone = phoneMatches[0].trim();
-                const digits = phone.replace(/\D/g, '');
-                if (digits.length >= 10) {
-                  phoneNumber = phone;
-                  break;
-                }
-              }
-            }
-            if (phoneNumber) break;
-          }
-        }
-        // If not found after 'contact', fallback to previous logic
-        if (!phoneNumber) {
-          for (const line of textLines) {
-            if (line.includes('@')) continue;
-            if (line.toLowerCase().includes('email')) continue;
-            if (line.toLowerCase().includes('www') || line.toLowerCase().includes('http')) continue;
-            if (/[a-zA-Z]/.test(line)) continue;
-            for (const pattern of phonePatterns) {
-              const phoneMatches = line.match(pattern);
-              if (phoneMatches && phoneMatches.length > 0) {
-                const phone = phoneMatches[0].trim();
-                const digits = phone.replace(/\D/g, '');
-                if (digits.length >= 10) {
-                  phoneNumber = phone;
-                  break;
-                }
-              }
-            }
-            if (phoneNumber) break;
+        
+        for (const pattern of phonePatterns) {
+          const phoneMatches = actualText.match(pattern);
+          if (phoneMatches && phoneMatches.length > 0) {
+            phoneNumber = phoneMatches[0];
+            break;
           }
         }
 
-        // Extract college/university name
+        // Extract college/university name - improved
         let collegeName = "Not specified";
         const collegePatterns = [
-          /university\s+of\s+[a-zA-Z\s]+/gi,
-          /[a-zA-Z\s]+\s+university/gi,
-          /[a-zA-Z\s]+\s+college/gi,
-          /college\s+of\s+[a-zA-Z\s]+/gi,
-          /[a-zA-Z\s]+\s+institute\s+of\s+technology/gi,
-          /[a-zA-Z\s]+\s+technical\s+university/gi
+          /(?:university\s+of\s+)([a-zA-Z\s]+)/gi,
+          /([a-zA-Z\s]+)\s+university/gi,
+          /([a-zA-Z\s]+)\s+college/gi,
+          /(?:college\s+of\s+)([a-zA-Z\s]+)/gi,
+          /([a-zA-Z\s]+)\s+institute\s+of\s+technology/gi,
+          /([a-zA-Z\s]+)\s+technical\s+university/gi,
+          /([a-zA-Z\s]+)\s+school/gi,
+          /bachelor.*from\s+([a-zA-Z\s]+)/gi,
+          /master.*from\s+([a-zA-Z\s]+)/gi,
+          /graduated\s+from\s+([a-zA-Z\s]+)/gi
         ];
         
         for (const pattern of collegePatterns) {
-          const matches = cv.text.match(pattern);
+          const matches = actualText.match(pattern);
           if (matches && matches.length > 0) {
-            collegeName = matches[0].trim();
-            break;
+            // Extract the university/college name from the match
+            let match = matches[0].replace(/university|college|institute|school|from|bachelor|master|graduated/gi, '').trim();
+            if (match.length > 3 && match.length < 100) {
+              collegeName = match;
+              break;
+            }
+          }
+        }
+
+        // Also try to find education section and extract from there
+        if (collegeName === "Not specified") {
+          const educationIndex = textLines.findIndex(line => 
+            line.toLowerCase().includes('education') || 
+            line.toLowerCase().includes('academic') ||
+            line.toLowerCase().includes('qualification')
+          );
+          
+          if (educationIndex !== -1) {
+            // Look in the next 5 lines after education header
+            for (let i = educationIndex + 1; i < Math.min(educationIndex + 6, textLines.length); i++) {
+              const line = textLines[i].trim();
+              if (line.length > 10 && 
+                  (line.toLowerCase().includes('university') || 
+                   line.toLowerCase().includes('college') ||
+                   line.toLowerCase().includes('institute'))) {
+                collegeName = line;
+                break;
+              }
+            }
           }
         }
 
@@ -170,7 +186,7 @@ export async function POST(request) {
         ];
         
         for (const pattern of experiencePatterns) {
-          const matches = cv.text.match(pattern);
+          const matches = actualText.match(pattern);
           if (matches && matches.length > 0) {
             const match = matches[0];
             const numbers = match.match(/\d+/);
@@ -193,12 +209,107 @@ export async function POST(request) {
           .filter(skill => text.includes(skill))
           .map(skill => skill.charAt(0).toUpperCase() + skill.slice(1));
           
-        // Extract education
+        // Extract education - separated into school and college
+        let school = "Not specified";
+        let college = "Not specified";
+        
+        // School patterns - looking for "school" keyword
+        const schoolPatterns = [
+          /([a-zA-Z\s,.-]+(?:school|high\s+school|secondary\s+school|senior\s+secondary))/gi,
+          /(?:studied\s+at|attended|from)\s+([a-zA-Z\s,.-]+school)/gi,
+          /(?:class\s+x|class\s+xii|10th|12th).*(?:from|at)\s+([a-zA-Z\s,.-]+)/gi,
+          /(?:icse|cbse|isc).*(?:from|at)\s+([a-zA-Z\s,.-]+)/gi
+        ];
+        
+        // College patterns - looking for academy, university, college, institute
+        const collegeEducationPatterns = [
+          // Pattern: "Bachelor of Science in Computer Science from University of XYZ"
+          /(?:bachelor|master|phd|doctorate).*(?:in|of)\s+([a-zA-Z\s]+)\s+(?:from|at)\s+([a-zA-Z\s,.-]+(?:academy|university|college|institute))/gi,
+          // Pattern: "B.Tech in Computer Science, XYZ Academy"
+          /(?:b\.?tech\.?|b\.?e\.?|m\.?tech\.?|m\.?e\.?)\s+(?:in\s+)?([a-zA-Z\s]+),?\s*([a-zA-Z\s,.-]+(?:academy|university|college|institute))/gi,
+          // Pattern: "graduated from Academy/University"
+          /(?:graduated\s+from|studied\s+at|attended)\s+([a-zA-Z\s,.-]+(?:academy|university|college|institute))/gi,
+          // Pattern: "Bachelor degree from XYZ Academy"
+          /(?:bachelor|master|phd|degree)\s+(?:degree\s+)?(?:from|at)\s+([a-zA-Z\s,.-]+(?:academy|university|college|institute))/gi,
+          // Pattern: "XYZ Academy - Bachelor of Science"
+          /([a-zA-Z\s,.-]+(?:academy|university|college|institute))\s*[-–—]\s*(?:bachelor|master|phd)/gi,
+          // Simple pattern: any text followed by academy/university/college/institute
+          /([a-zA-Z\s,.-]+(?:academy|university|college|institute))/gi
+        ];
+        
+        // Extract school information
+        for (const pattern of schoolPatterns) {
+          const matches = [...actualText.matchAll(pattern)];
+          if (matches && matches.length > 0) {
+            const match = matches[0];
+            const schoolName = match[1] ? match[1].trim() : match[0].trim();
+            if (schoolName && schoolName.length > 3 && schoolName.length < 100) {
+              school = schoolName;
+              break;
+            }
+          }
+        }
+        
+        // Extract college information
+        for (const pattern of collegeEducationPatterns) {
+          const matches = [...actualText.matchAll(pattern)];
+          if (matches && matches.length > 0) {
+            const match = matches[0];
+            let collegeName = "";
+            
+            if (match[2]) {
+              // Pattern that captured both degree and institution
+              collegeName = match[2].trim();
+            } else if (match[1]) {
+              // Pattern that captured institution only
+              collegeName = match[1].trim();
+            }
+            
+            if (collegeName && collegeName.length > 3 && collegeName.length < 100) {
+              college = collegeName;
+              break;
+            }
+          }
+        }
+        
+        // If still not found, look in education section
+        const educationIndex = textLines.findIndex(line => 
+          line.toLowerCase().includes('education') || 
+          line.toLowerCase().includes('qualification') ||
+          line.toLowerCase().includes('academic')
+        );
+        
+        if (educationIndex !== -1) {
+          // Look for school and college info in next few lines
+          for (let i = educationIndex + 1; i < Math.min(educationIndex + 8, textLines.length); i++) {
+            const line = textLines[i].trim();
+            
+            // Check for school
+            if (school === "Not specified" && line.toLowerCase().includes('school')) {
+              if (line.length > 5 && line.length < 100) {
+                school = line;
+              }
+            }
+            
+            // Check for college/academy
+            if (college === "Not specified" && 
+                (line.toLowerCase().includes('academy') || 
+                 line.toLowerCase().includes('university') ||
+                 line.toLowerCase().includes('college') ||
+                 line.toLowerCase().includes('institute'))) {
+              if (line.length > 5 && line.length < 100) {
+                college = line;
+              }
+            }
+          }
+        }
+        
+        // Create education string - prioritize school name without labels
         let education = "Not specified";
-        const eduLines = cv.text.split("\n")
-          .filter(line => /school/i.test(line));
-        if (eduLines.length > 0) {
-          education = eduLines[0].trim();
+        if (school !== "Not specified") {
+          education = school;
+        } else if (college !== "Not specified") {
+          education = college;
         }
         
         // Generate sample recommended roles with match percentages
@@ -222,29 +333,82 @@ export async function POST(request) {
           recommendedRoles.push({ role: "General Developer", percent: 50 });
         }
 
-        // Create summary
-        const summary = text
-          .split("\n")
-          .filter((line) => line.trim().length > 10)
-          .slice(0, 3)
-          .join(" ")
-          .substring(0, 150) + "...";
+        // Create comprehensive summary with all requested fields
+        let detailedSummary = {
+          name: name,
+          email: email,
+          contact: phoneNumber,
+          education: education,
+          school: school,
+          college: college,
+          recommendedRoles: recommendedRoles,
+          shortSummary: ""
+        };
+        
+        // Create short summary from actual extracted information
+        let shortSummary = "";
+        if (category !== "Other") {
+          shortSummary = `${category}`;
+          if (yearsOfExperience > 0) {
+            shortSummary += ` with ${yearsOfExperience}+ years of experience`;
+          }
+          shortSummary += ". ";
+        }
+        
+        if (skills.length > 0) {
+          shortSummary += `Skilled in ${skills.slice(0, 3).join(', ')}${skills.length > 3 ? ' and more' : ''}. `;
+        }
+        
+        if (collegeName !== "Not specified") {
+          shortSummary += `Educated at ${collegeName}. `;
+        }
+        
+        // If we couldn't build a good summary, extract from meaningful text lines
+        if (!shortSummary || shortSummary.trim().length < 20) {
+          const meaningfulLines = actualText
+            .split("\n")
+            .map(line => line.trim())
+            .filter(line => 
+              line.length > 15 && 
+              !line.toLowerCase().includes('resume') &&
+              !line.toLowerCase().includes('curriculum vitae') &&
+              !line.includes('@') &&
+              !/^\d+$/.test(line) // Skip lines with just numbers
+            )
+            .slice(0, 2);
+          
+          shortSummary = meaningfulLines.join(" ").substring(0, 200);
+          if (shortSummary.length > 10) {
+            shortSummary += "...";
+          }
+        }
+        
+        // Final fallback
+        if (!shortSummary || shortSummary.trim().length < 10) {
+          shortSummary = `${category} candidate with relevant skills and experience.`;
+        }
+        
+        detailedSummary.shortSummary = shortSummary;
 
         // Add processed CV to results
-        categorized.push({
-          fileName: cv.fileName,
+        const processedCV = {
+          fileName: file.name,
           name: name,
           email: email,
           phoneNumber: phoneNumber,
+          contact: phoneNumber,
           collegeName: collegeName,
           category,
-          summary,
+          summary: detailedSummary,
           skills,
           education,
           recommendedRoles,
           yearsOfExperience: yearsOfExperience,
           role: category // Add role field for frontend filter
-        });
+        };
+        
+        console.log('🔍 DEBUG: Processed CV structure:', JSON.stringify(processedCV, null, 2));
+        categorized.push(processedCV);
         
         // Save the extracted data to the database
         try {
@@ -295,20 +459,20 @@ export async function POST(request) {
           
           connection.release();
         } catch (dbError) {
-          console.error(`Error saving processed data for ${cv.fileName}:`, dbError.message);
+          console.error(`Error saving processed data for ${file.name}:`, dbError.message);
         }
         
       } catch (cvError) {
-        console.error(`Error processing CV ${cv.fileName}:`, cvError.message);
+        console.error(`Error processing CV ${file.name}:`, cvError.message);
         categorized.push({
-          fileName: cv.fileName,
+          fileName: file.name,
           category: "Error",
           summary: "Failed to process CV: " + cvError.message
         });
       }
     }
 
-    return NextResponse.json({ categorized });
+    return NextResponse.json({ results: categorized });
   } catch (error) {
     console.error("Error in process-cv API:", error);
     return NextResponse.json(

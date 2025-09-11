@@ -368,7 +368,11 @@ export default function ProcessCVsPage() {
 
                     <div className="mt-3 pt-3 border-t border-gray-100">
                       <p className="text-xs font-medium text-gray-500 mb-1">Summary:</p>
-                      <p className="text-xs text-gray-700 line-clamp-3">{result.summary || "No summary available."}</p>
+                      <p className="text-xs text-gray-700 line-clamp-3">{
+                        typeof result.summary === 'string' 
+                          ? result.summary 
+                          : result.summary?.shortSummary || result.summary?.summary || "No summary available."
+                      }</p>
                     </div>
                   </div>
                 ))}
