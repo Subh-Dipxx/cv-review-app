@@ -40,17 +40,29 @@ export async function GET() {
             // Try to parse as JSON
             roles = JSON.parse(row.recommended_roles);
           } else {
-            // Treat as comma-separated string
-            roles = row.recommended_roles.split(',').map(r => r.trim());
+            // Treat as comma-separated string - convert to objects with role name
+            roles = row.recommended_roles.split(',').map(r => ({ role: r.trim(), percent: 50 }));
           }
           
-          if (Array.isArray(roles)) {
+          if (Array.isArray(roles) && roles.length > 0) {
+            // Find the role with highest percentage
+            let highestRole = null;
+            let highestPercent = 0;
+            
             roles.forEach(roleItem => {
               const roleName = typeof roleItem === 'string' ? roleItem : roleItem.role;
-              if (roleName && roleName !== 'No roles') {
-                engineerTypes[roleName] = (engineerTypes[roleName] || 0) + 1;
+              const rolePercent = typeof roleItem === 'object' && roleItem.percent ? roleItem.percent : 50;
+              
+              if (roleName && roleName !== 'No roles' && rolePercent > highestPercent) {
+                highestRole = roleName;
+                highestPercent = rolePercent;
               }
             });
+            
+            // Allocate this CV to only the highest percentage role
+            if (highestRole) {
+              engineerTypes[highestRole] = (engineerTypes[highestRole] || 0) + 1;
+            }
           }
         }
       } catch (e) {

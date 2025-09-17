@@ -348,7 +348,7 @@ export default function ProcessCVsPage() {
                       {(result.email || result.summary?.email) && (
                         <div className="flex items-start justify-between">
                           <span className="text-gray-500">Email:</span>
-                          <span className="font-medium text-gray-900 text-right text-xs max-w-32 truncate" title={result.email || result.summary?.email}>
+                          <span className="font-medium text-gray-900 text-right text-xs break-all" title={result.email || result.summary?.email}>
                             {result.email || result.summary?.email}
                           </span>
                         </div>
@@ -357,7 +357,7 @@ export default function ProcessCVsPage() {
                       {(result.phoneNumber || result.contact || result.summary?.contact) && (
                         <div className="flex items-start justify-between">
                           <span className="text-gray-500">Phone:</span>
-                          <span className="font-medium text-gray-900 text-right text-xs max-w-32 truncate" title={result.phoneNumber || result.contact || result.summary?.contact}>
+                          <span className="font-medium text-gray-900 text-right text-xs" title={result.phoneNumber || result.contact || result.summary?.contact}>
                             {result.phoneNumber || result.contact || result.summary?.contact}
                           </span>
                         </div>
