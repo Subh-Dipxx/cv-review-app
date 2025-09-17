@@ -11,6 +11,8 @@ export async function GET() {
       WHERE file_name IS NOT NULL AND file_name != ''
     `);
     const totalResumes = totalResult[0].count;
+    
+    console.log(`Analytics: Found ${totalResumes} unique resumes (deduplicated by filename)`);
 
     // If no data exists, return empty analytics
     if (totalResumes === 0) {
@@ -43,6 +45,8 @@ export async function GET() {
       AND recommended_roles != '' 
       AND recommended_roles != 'No roles'
     `);
+
+    console.log(`Analytics: Processing ${engineerTypesResult.length} unique resume role distributions`);
 
     const engineerTypes = {};
     engineerTypesResult.forEach(row => {
@@ -106,19 +110,35 @@ export async function GET() {
       count: row.count
     }));
 
-    // Get processing stats
+    // Get processing stats - only count unique filenames
     const [successfulResult] = await pool.query(`
-      SELECT COUNT(*) as count 
-      FROM cvs 
-      WHERE name IS NOT NULL AND name != '' AND name != 'Unknown'
-        AND recommended_roles IS NOT NULL AND recommended_roles != '' AND recommended_roles != 'No roles'
+      SELECT COUNT(DISTINCT file_name) as count 
+      FROM cvs c1
+      WHERE c1.id = (
+        SELECT MAX(c2.id) 
+        FROM cvs c2 
+        WHERE c2.file_name = c1.file_name 
+        AND c2.file_name IS NOT NULL 
+        AND c2.file_name != ''
+      )
+      AND name IS NOT NULL AND name != '' AND name != 'Unknown'
+      AND recommended_roles IS NOT NULL AND recommended_roles != '' AND recommended_roles != 'No roles'
     `);
     const [failedResult] = await pool.query(`
-      SELECT COUNT(*) as count 
-      FROM cvs 
-      WHERE (name IS NULL OR name = '' OR name = 'Unknown') 
-        OR (recommended_roles IS NULL OR recommended_roles = '' OR recommended_roles = 'No roles')
+      SELECT COUNT(DISTINCT file_name) as count 
+      FROM cvs c1
+      WHERE c1.id = (
+        SELECT MAX(c2.id) 
+        FROM cvs c2 
+        WHERE c2.file_name = c1.file_name 
+        AND c2.file_name IS NOT NULL 
+        AND c2.file_name != ''
+      )
+      AND ((name IS NULL OR name = '' OR name = 'Unknown') 
+        OR (recommended_roles IS NULL OR recommended_roles = '' OR recommended_roles = 'No roles'))
     `);
+    
+    console.log(`Analytics: Processing stats - Successful: ${successfulResult[0].count}, Failed: ${failedResult[0].count}`);
     
     const analytics = {
       totalResumes,
