@@ -1,12 +1,21 @@
 import { NextResponse } from "next/server";
 import pool from "../../lib/db";
 import { analyzeCvWithAI } from "../../lib/ai-service";
+import { getAuth } from "@clerk/nextjs/server";
 
 export async function POST(request) {
   let connection;
   console.log("POST /api/process-cv - Request received");
   
   try {
+    // Get the current user's ID from Clerk (might be null in keyless mode)
+    const { userId } = getAuth(request);
+    console.log('Current user ID in process-cv:', userId);
+    
+    // Use a default user ID for keyless mode
+    const effectiveUserId = userId || 'keyless-user';
+    console.log('Effective user ID:', effectiveUserId);
+    
     // Parse FormData (for file uploads)
     const formData = await request.formData();
     const files = formData.getAll('files');
@@ -440,10 +449,10 @@ export async function POST(request) {
           const pool = require('../../lib/db').default;
           const connection = await pool.getConnection();
           
-          // Find the CV record by filename and user_id (assuming user_id is available in context)
+          // Find the CV record by filename and user_id
           const [cvRows] = await connection.query(
-            'SELECT id FROM cvs WHERE file_name = ? ORDER BY id DESC LIMIT 1',
-            [file.name]
+            'SELECT id FROM cvs WHERE file_name = ? AND user_id = ? ORDER BY id DESC LIMIT 1',
+            [file.name, effectiveUserId]
           );
           
           if (cvRows.length > 0) {
@@ -462,8 +471,9 @@ export async function POST(request) {
                  years_of_experience = ?, 
                  job_title = ?, 
                  skills = ?, 
-                 recommended_roles = ? 
-               WHERE id = ?`,
+                 recommended_roles = ?, 
+                 user_id = ?
+               WHERE id = ? AND user_id = ?`,
               [
                 name || 'Unknown', 
                 email || 'No email', 
@@ -473,7 +483,9 @@ export async function POST(request) {
                 category || 'No role',
                 skills.join(', '),
                 formattedRoles,
-                cvId
+                effectiveUserId,
+                cvId,
+                effectiveUserId
               ]
             );
             
@@ -497,7 +509,7 @@ export async function POST(request) {
                 formattedRoles,
                 category,
                 `CV analysis for ${file.name}`,
-                'demo-user'
+                effectiveUserId  // Use effective user ID (handles keyless mode)
               ]
             );
             

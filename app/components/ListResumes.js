@@ -15,6 +15,8 @@ const ListResumes = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState(null); // Track which CV is being deleted
+  const [autoRefresh, setAutoRefresh] = useState(false); // Auto-refresh toggle
+  const [lastRefresh, setLastRefresh] = useState(null); // Track last refresh time
   
   // Common skills for filter dropdown
   const skillOptions = [
@@ -201,7 +203,14 @@ const ListResumes = () => {
         if (resume.recommendedRoles) {
           let roles = [];
           if (Array.isArray(resume.recommendedRoles)) {
-            roles = resume.recommendedRoles;
+            roles = resume.recommendedRoles.map(roleItem => {
+              if (typeof roleItem === 'object' && roleItem.role) {
+                return roleItem.role;
+              } else if (typeof roleItem === 'string') {
+                return roleItem;
+              }
+              return null;
+            }).filter(role => role !== null);
           } else if (typeof resume.recommendedRoles === 'string') {
             roles = resume.recommendedRoles.split(',').map(r => r.trim()).filter(r => r);
           }
@@ -315,7 +324,14 @@ const ListResumes = () => {
         // Also check database roles if available
         let roles = [];
         if (Array.isArray(resume.recommendedRoles)) {
-          roles = resume.recommendedRoles;
+          roles = resume.recommendedRoles.map(roleItem => {
+            if (typeof roleItem === 'object' && roleItem.role) {
+              return roleItem.role;
+            } else if (typeof roleItem === 'string') {
+              return roleItem;
+            }
+            return null;
+          }).filter(role => role !== null);
         } else if (typeof resume.recommendedRoles === 'string') {
           roles = resume.recommendedRoles.split(',').map(r => r.trim()).filter(r => r);
         }
@@ -403,14 +419,45 @@ const ListResumes = () => {
   // Handle button click
   const handleListClick = async () => {
     await fetchResumes();
+    setLastRefresh(new Date());
   };
 
+  // Auto-load resumes when component mounts
+  useEffect(() => {
+    const loadInitialData = async () => {
+      console.log('Component mounted, auto-loading resumes...');
+      await fetchResumes();
+      setLastRefresh(new Date());
+    };
+    
+    loadInitialData();
+  }, []); // Empty dependency array means this runs once on mount
+
+  // Auto-refresh functionality
+  useEffect(() => {
+    let intervalId;
+    
+    if (autoRefresh) {
+      // Refresh every 30 seconds when auto-refresh is enabled
+      intervalId = setInterval(async () => {
+        console.log('Auto-refreshing resumes...');
+        await fetchResumes();
+        setLastRefresh(new Date());
+      }, 30000); // 30 seconds
+    }
+    
+    // Cleanup interval on component unmount or when auto-refresh is disabled
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [autoRefresh]);
+
+  // Filter resumes whenever filters or data changes
   useEffect(() => {
     filterResumes();
   }, [resumes, searchText, experienceLevel, selectedSkills, roleCategory]);
-  
-  // Don't automatically fetch resumes on component mount
-  // User must click the "List" button explicitly
 
   // Export CVs to CSV
   const exportCsv = async () => {
@@ -810,137 +857,178 @@ const ListResumes = () => {
                                    highestMatchPercentage > 0;
             return (
             <div key={resume.id} style={{ 
-              border: isTopCandidate ? '3px solid #10b981' : '1px solid #3b82f6', 
+              border: isTopCandidate ? '3px solid #10b981' : '1px solid #e5e7eb', 
               borderRadius: '8px',
-              padding: '1.5rem', 
-              marginBottom: '1.5rem',
-              backgroundColor: isTopCandidate ? '#ecfdf5' : '#f0f9ff',
+              padding: '1rem', 
+              marginBottom: '1rem',
+              backgroundColor: isTopCandidate ? '#ecfdf5' : 'white',
               position: 'relative',
-              boxShadow: isTopCandidate ? '0 10px 25px rgba(16, 185, 129, 0.3)' : 'none',
-              transform: isTopCandidate ? 'scale(1.02)' : 'scale(1)',
-              transition: 'all 0.3s ease'
+              boxShadow: isTopCandidate ? '0 4px 12px rgba(16, 185, 129, 0.2)' : '0 1px 3px rgba(0, 0, 0, 0.1)',
+              transition: 'all 0.2s ease'
             }}>
               {/* Most Eligible Badge */}
               {isTopCandidate && (
                 <div style={{
                   position: 'absolute',
-                  top: '-12px',
-                  left: '20px',
+                  top: '-8px',
+                  left: '16px',
                   backgroundColor: '#10b981',
                   color: 'white',
-                  padding: '6px 16px',
-                  borderRadius: '20px',
-                  fontSize: '0.85rem',
+                  padding: '4px 12px',
+                  borderRadius: '12px',
+                  fontSize: '0.75rem',
                   fontWeight: 'bold',
-                  boxShadow: '0 4px 12px rgba(16, 185, 129, 0.4)',
+                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
                   zIndex: 10
                 }}>
-                  🏆 MOST ELIGIBLE
+                  🏆 TOP MATCH
                 </div>
               )}
+              
               {/* Delete button */}
               <button 
                 onClick={() => deleteCv(resume.id)} 
                 disabled={deletingId === resume.id}
                 style={{ 
                   position: 'absolute', 
-                  top: '10px', 
-                  right: '10px', 
+                  top: '8px', 
+                  right: '8px', 
                   background: 'transparent', 
                   border: 'none',
                   cursor: 'pointer',
-                  padding: '5px',
+                  padding: '4px',
                   borderRadius: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  transition: 'all 0.2s'
+                  fontSize: '1rem',
+                  color: '#ef4444',
+                  opacity: 0.7
                 }}
-                onMouseOver={(e) => e.currentTarget.style.background = '#fee2e2'}
-                onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.background = '#fee2e2';
+                  e.currentTarget.style.opacity = '1';
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.opacity = '0.7';
+                }}
                 title="Delete this CV"
               >
-                {deletingId === resume.id ? (
-                  <span style={{ fontSize: '1.2rem', color: '#888' }}>⏳</span>
-                ) : (
-                  <span style={{ fontSize: '1.2rem', color: '#ef4444' }}>🗑️</span>
-                )}
+                {deletingId === resume.id ? '⏳' : '🗑️'}
               </button>
               
-              <h3 style={{ 
-                fontSize: '1.25rem', 
-                fontWeight: 'bold', 
-                marginBottom: '0.75rem',
-                color: '#1e40af',
-                paddingRight: '30px', // Make room for the delete button
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between'
-              }}>
-                <span>
-                  {resume.name || resume.candidateName || resume.pdfName || 'No Name Available'}
-                </span>
-                {(searchText || experienceLevel || selectedSkills.length > 0 || roleCategory) && resume.matchPercentage > 0 && (
-                  <span style={{
-                    fontSize: '0.9rem',
-                    backgroundColor: resume.matchPercentage >= 80 ? '#10b981' : resume.matchPercentage >= 60 ? '#f59e0b' : '#ef4444',
-                    color: 'white',
-                    padding: '4px 10px',
-                    borderRadius: '16px',
-                    fontWeight: 'bold',
-                    marginLeft: '10px'
-                  }}>
-                    {resume.matchPercentage}% Match
-                  </span>
-                )}
-              </h3>
-              
-              {/* Match Details */}
-              {(searchText || experienceLevel || selectedSkills.length > 0 || roleCategory) && resume.matchPercentage > 0 && (
-                <div style={{
-                  backgroundColor: '#f8fafc',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  padding: '10px',
-                  marginBottom: '10px',
-                  fontSize: '0.85rem'
+              {/* Short Summary Display */}
+              <div style={{ paddingRight: '30px' }}>
+                {/* Name */}
+                <h3 style={{ 
+                  fontSize: '1.1rem', 
+                  fontWeight: '600', 
+                  marginBottom: '0.5rem',
+                  color: '#1f2937',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
                 }}>
-                  <div style={{ fontWeight: 'bold', color: '#374151', marginBottom: '5px' }}>
-                    Match Breakdown ({resume.totalScore}/{resume.maxPossibleScore} points):
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '5px' }}>
-                    {searchText && resume.matchDetails && resume.matchDetails.textMatch > 0 && (
-                      <div>Text Search: <span style={{color: '#10b981', fontWeight: 'bold'}}>{resume.matchDetails.textMatch}%</span></div>
-                    )}
-                    {experienceLevel && resume.matchDetails && resume.matchDetails.experienceMatch > 0 && (
-                      <div>Experience: <span style={{color: '#10b981', fontWeight: 'bold'}}>{resume.matchDetails.experienceMatch}%</span></div>
-                    )}
-                    {selectedSkills.length > 0 && resume.matchDetails && resume.matchDetails.skillMatch > 0 && (
-                      <div>Skill Match: <span style={{color: '#10b981', fontWeight: 'bold'}}>{resume.matchDetails.skillMatch}%</span></div>
-                    )}
-                    {roleCategory && resume.matchDetails && resume.matchDetails.roleMatch > 0 && (
-                      <div>Role Match: <span style={{color: '#10b981', fontWeight: 'bold'}}>{resume.matchDetails.roleMatch}%</span></div>
-                    )}
+                  <span>
+                    👤 {resume.name || resume.candidateName || resume.pdfName || 'No Name Available'}
+                  </span>
+                  {(searchText || experienceLevel || selectedSkills.length > 0 || roleCategory) && resume.matchPercentage > 0 && (
+                    <span style={{
+                      fontSize: '0.8rem',
+                      backgroundColor: resume.matchPercentage >= 80 ? '#10b981' : resume.matchPercentage >= 60 ? '#f59e0b' : '#ef4444',
+                      color: 'white',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      fontWeight: 'bold'
+                    }}>
+                      {resume.matchPercentage}%
+                    </span>
+                  )}
+                </h3>
+                
+                {/* Experience */}
+                <div style={{ 
+                  fontSize: '0.9rem', 
+                  color: '#4b5563', 
+                  marginBottom: '0.5rem',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}>
+                  <span style={{ marginRight: '0.5rem' }}>💼</span>
+                  <strong>Experience:</strong> 
+                  <span style={{ marginLeft: '0.5rem', color: '#1f2937' }}>
+                    {resume.yearsOfExperience !== null && resume.yearsOfExperience !== undefined
+                      ? `${resume.yearsOfExperience} years` 
+                      : (resume.experience !== null && resume.experience !== undefined 
+                         ? `${resume.experience} years` 
+                         : 'Not specified')
+                    }
+                  </span>
+                </div>
+                
+                {/* Skills */}
+                <div style={{ 
+                  fontSize: '0.9rem', 
+                  color: '#4b5563',
+                  display: 'flex',
+                  alignItems: 'flex-start'
+                }}>
+                  <span style={{ marginRight: '0.5rem', marginTop: '2px' }}>🛠️</span>
+                  <div>
+                    <strong>Skills:</strong>
+                    <div style={{ 
+                      marginTop: '0.25rem',
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '0.25rem'
+                    }}>
+                      {(() => {
+                        // Extract skills from different sources
+                        let skillsArray = [];
+                        
+                        // From database skills field
+                        if (resume.skills) {
+                          if (Array.isArray(resume.skills)) {
+                            skillsArray = [...skillsArray, ...resume.skills];
+                          } else if (typeof resume.skills === 'string') {
+                            skillsArray = [...skillsArray, ...resume.skills.split(',').map(s => s.trim()).filter(s => s)];
+                          }
+                        }
+                        
+                        // From recommended roles as skills
+                        if (resume.recommendedRoles && Array.isArray(resume.recommendedRoles)) {
+                          const roleNames = resume.recommendedRoles.map(roleItem => {
+                            if (typeof roleItem === 'object' && roleItem.role) {
+                              return roleItem.role;
+                            } else if (typeof roleItem === 'string') {
+                              return roleItem;
+                            }
+                            return null;
+                          }).filter(role => role !== null);
+                          skillsArray = [...skillsArray, ...roleNames];
+                        }
+                        
+                        // Remove duplicates and limit to 8 skills
+                        const uniqueSkills = [...new Set(skillsArray)].slice(0, 8);
+                        
+                        if (uniqueSkills.length === 0) {
+                          return <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>No skills specified</span>;
+                        }
+                        
+                        return uniqueSkills.map((skill, idx) => (
+                          <span key={idx} style={{
+                            backgroundColor: '#f3f4f6',
+                            color: '#374151',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            fontSize: '0.8rem',
+                            border: '1px solid #e5e7eb'
+                          }}>
+                            {skill}
+                          </span>
+                        ));
+                      })()}
+                    </div>
                   </div>
                 </div>
-              )}
-              
-              <div style={{ marginBottom: '0.75rem' }}>
-                <strong>Years of Experience:</strong> {
-                  resume.yearsOfExperience !== null && resume.yearsOfExperience !== undefined
-                  ? `${resume.yearsOfExperience} years` 
-                  : (resume.experience !== null && resume.experience !== undefined 
-                     ? `${resume.experience} years` 
-                     : 'Not specified')
-                }
-              </div>
-              
-              <div>
-                <strong>Recommended Roles:</strong> {
-                  Array.isArray(resume.recommendedRoles) && resume.recommendedRoles.length > 0
-                    ? resume.recommendedRoles.join(', ') 
-                    : 'Not specified'
-                }
               </div>
             </div>
             );

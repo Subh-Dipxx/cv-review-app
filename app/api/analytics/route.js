@@ -3,8 +3,13 @@ import pool from '../../lib/db.js';
 
 export async function GET() {
   try {
-    // Get real data from database
-    const [totalResult] = await pool.query('SELECT COUNT(*) as count FROM cvs');
+    // Get real data from database - count only unique resumes by filename
+    // Use the same deduplication logic as the ListResumes component
+    const [totalResult] = await pool.query(`
+      SELECT COUNT(DISTINCT file_name) as count 
+      FROM cvs 
+      WHERE file_name IS NOT NULL AND file_name != ''
+    `);
     const totalResumes = totalResult[0].count;
 
     // If no data exists, return empty analytics
@@ -23,10 +28,20 @@ export async function GET() {
     }
 
     // Get engineer types distribution from recommended_roles
+    // Only use the latest entry for each unique filename
     const [engineerTypesResult] = await pool.query(`
-      SELECT recommended_roles
-      FROM cvs 
-      WHERE recommended_roles IS NOT NULL AND recommended_roles != '' AND recommended_roles != 'No roles'
+      SELECT recommended_roles, file_name
+      FROM cvs c1
+      WHERE c1.id = (
+        SELECT MAX(c2.id) 
+        FROM cvs c2 
+        WHERE c2.file_name = c1.file_name 
+        AND c2.file_name IS NOT NULL 
+        AND c2.file_name != ''
+      )
+      AND recommended_roles IS NOT NULL 
+      AND recommended_roles != '' 
+      AND recommended_roles != 'No roles'
     `);
 
     const engineerTypes = {};
@@ -72,14 +87,17 @@ export async function GET() {
     });
 
     // Get recent uploads (last 7 days) using created_at field
+    // Only count unique filenames per day (latest entry for each file)
     const [recentUploadsResult] = await pool.query(`
       SELECT 
-        DATE_FORMAT(created_at, '%a') as day_name,
+        DATE_FORMAT(MAX(created_at), '%a') as day_name,
         DATE(created_at) as upload_date,
-        COUNT(*) as count 
+        COUNT(DISTINCT file_name) as count 
       FROM cvs 
       WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-      GROUP BY DATE(created_at), DATE_FORMAT(created_at, '%a')
+        AND file_name IS NOT NULL 
+        AND file_name != ''
+      GROUP BY DATE(created_at)
       ORDER BY upload_date
     `);
 

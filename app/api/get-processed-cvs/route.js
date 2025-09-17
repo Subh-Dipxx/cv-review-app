@@ -7,16 +7,13 @@ export async function GET(request) {
   try {
     console.log('Attempting database connection in get-processed-cvs');
     
-    // Get the current user's ID from Clerk
+    // Get the current user's ID from Clerk (might be null in keyless mode)
     const { userId } = getAuth(request);
     console.log('Current user ID:', userId);
     
-    if (!userId) {
-      return NextResponse.json(
-        { error: "Unauthorized. Please log in." },
-        { status: 401 }
-      );
-    }
+    // Use a default user ID for keyless mode
+    const effectiveUserId = userId || 'keyless-user';
+    console.log('Effective user ID:', effectiveUserId);
     
     // Add timeout to database connection
     connection = await Promise.race([
@@ -38,7 +35,7 @@ export async function GET(request) {
         GROUP BY file_name
       )
       ORDER BY created_at DESC
-    `, [userId, userId]);
+    `, [effectiveUserId, effectiveUserId]);
     
     console.log(`Retrieved ${rows.length} processed CVs from database`);
     

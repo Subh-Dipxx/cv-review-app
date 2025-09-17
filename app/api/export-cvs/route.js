@@ -4,15 +4,12 @@ import { getAuth } from "@clerk/nextjs/server";
 
 export async function GET(request) {
   try {
-    // Get the current user's ID from Clerk
+    // Get the current user's ID from Clerk (might be null in keyless mode)
     const { userId } = getAuth(request);
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized: User not authenticated" }, { status: 401 });
-    }
     
-    console.log(`Exporting CVs for user ${userId}`);
-    
-    console.log(`Exporting CVs for user ${userId}`);
+    // Use a default user ID for keyless mode
+    const effectiveUserId = userId || 'keyless-user';
+    console.log(`Exporting CVs for user ${effectiveUserId}`);
     
     // Connect to the database
     const connection = await pool.getConnection();
@@ -21,7 +18,7 @@ export async function GET(request) {
       // Get only the current user's CVs from the database
       const [rows] = await connection.execute(
         "SELECT * FROM cvs WHERE user_id = ? ORDER BY id DESC",
-        [userId]
+        [effectiveUserId]
       );
       
       console.log(`Exporting ${rows.length} CVs to CSV`);
