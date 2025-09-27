@@ -475,93 +475,199 @@ export async function POST(request) {
           }
         }
 
+// Helper function to check if person has actual corporate/company work experience
+function checkForActualWorkExperience(text) {
+  console.log('Checking for actual company work experience...');
+  
+  // Look for date ranges in the text
+  const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+  let foundWorkHistory = false;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const dateMatches = extractDateRanges(line);
+    
+    if (dateMatches.length > 0) {
+      console.log(`Found date range: "${line}"`);
+      
+      // Check if this date range is associated with a company name
+      // Look in the same line and nearby lines for company indicators
+      const contextLines = [
+        line,
+        i > 0 ? lines[i-1] : '',
+        i > 1 ? lines[i-2] : '',
+        i < lines.length-1 ? lines[i+1] : '',
+        i < lines.length-2 ? lines[i+2] : ''
+      ].filter(l => l.length > 0);
+      
+      const contextText = contextLines.join(' ').toLowerCase();
+      
+      // Company name indicators (actual suffixes/words that indicate companies)
+      const companyIndicators = [
+        'inc', 'ltd', 'llc', 'corp', 'corporation', 'company', 'co.',
+        'technologies', 'systems', 'solutions', 'group', 'consulting',
+        'services', 'software', 'tech', 'pvt', 'private', 'limited',
+        'enterprises', 'industries', 'labs', 'studio', 'studios',
+        'partners', 'associates', 'holdings', 'ventures'
+      ];
+      
+      // First check if this is an educational institution or project (exclude these)
+      const educationIndicators = [
+        'school', 'college', 'university', 'academy', 'institute', 'institution',
+        'campus', 'high school', 'secondary school', 'primary school', 'kindergarten',
+        'education', 'educational', 'learning', 'training institute', 'coaching',
+        'tutorial', 'tutorials', 'classes', 'board of education'
+      ];
+      
+      const projectIndicators = [
+        'project', 'capstone', 'thesis', 'assignment', 'coursework', 'predictor',
+        'calculator', 'analyzer', 'detector', 'classifier', 'recommender',
+        'app development', 'web development', 'mobile development', 'final year project',
+        'major project', 'minor project', 'academic project'
+      ];
+      
+      const isEducational = educationIndicators.some(indicator => 
+        contextText.includes(indicator)
+      );
+      
+      const isProject = projectIndicators.some(indicator => 
+        contextText.includes(indicator)
+      );
+      
+      // Skip if this is an educational institution or project
+      if (isEducational) {
+        console.log(`Skipping educational institution: "${contextText.substring(0, 100)}..."`);
+        continue;
+      }
+      
+      if (isProject) {
+        console.log(`Skipping project/academic work: "${contextText.substring(0, 100)}..."`);
+        continue;
+      }
+      
+      // Check if any company indicators are present near the date range
+      const hasCompanyIndicator = companyIndicators.some(indicator => 
+        contextText.includes(indicator)
+      );
+      
+      // Additional check: look for patterns like "at CompanyName" or "CompanyName, City"
+      const workPatterns = [
+        /\bat\s+[a-zA-Z][a-zA-Z\s&.,'-]+/gi,  // "at CompanyName"
+        /[a-zA-Z][a-zA-Z\s&.,'-]+,\s+[a-zA-Z]+/gi,  // "CompanyName, City"
+        /worked\s+(?:at|for)\s+[a-zA-Z][a-zA-Z\s&.,'-]+/gi,  // "worked at/for CompanyName"
+        /employed\s+(?:at|by)\s+[a-zA-Z][a-zA-Z\s&.,'-]+/gi   // "employed at/by CompanyName"
+      ];
+      
+      const hasWorkPattern = workPatterns.some(pattern => pattern.test(contextText));
+      
+      if (hasCompanyIndicator || hasWorkPattern) {
+        console.log(`Found work experience with company: "${contextText.substring(0, 100)}..."`);
+        foundWorkHistory = true;
+        break;
+      }
+    }
+  }
+  
+  console.log(`Company work experience found: ${foundWorkHistory}`);
+  return foundWorkHistory;
+}
+
         // Extract years of experience by parsing work history
         let yearsOfExperience = 0;
         
         console.log('Parsing work history from CV text...');
         
-        // Simple approach: find all date ranges in the document
-        const allDateRanges = [];
-        const lines = actualText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+        // Check if person has actual corporate/company work experience
+        const hasActualWorkExperience = checkForActualWorkExperience(actualText);
         
-        lines.forEach((line, index) => {
-          const dateMatches = extractDateRanges(line);
-          if (dateMatches.length > 0) {
-            const { startDate, endDate, duration } = parseDateRange(dateMatches[0]);
-            if (duration > 0 && startDate && endDate) {
-              allDateRanges.push({
-                startDate,
-                endDate,
-                duration,
-                rawText: line,
-                lineIndex: index
-              });
-              console.log(`Found date range: ${line} (${duration} months)`);
+        if (hasActualWorkExperience) {
+          // Simple approach: find all date ranges in the document
+          const allDateRanges = [];
+          const lines = actualText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+          
+          lines.forEach((line, index) => {
+            const dateMatches = extractDateRanges(line);
+            if (dateMatches.length > 0) {
+              const { startDate, endDate, duration } = parseDateRange(dateMatches[0]);
+              if (duration > 0 && startDate && endDate) {
+                allDateRanges.push({
+                  startDate,
+                  endDate,
+                  duration,
+                  rawText: line,
+                  lineIndex: index
+                });
+                console.log(`Found date range: ${line} (${duration} months)`);
+              }
             }
-          }
-        });
-        
-        if (allDateRanges.length > 0) {
-          // Calculate total experience from all date ranges
-          console.log(`Found ${allDateRanges.length} work periods`);
+          });
           
-          // Sort by start date and merge overlapping periods
-          const sortedRanges = allDateRanges.sort((a, b) => a.startDate - b.startDate);
-          let totalMonths = 0;
-          let lastEndDate = null;
-          
-          for (const range of sortedRanges) {
-            let months = range.duration;
+          if (allDateRanges.length > 0) {
+            // Calculate total experience from all date ranges
+            console.log(`Found ${allDateRanges.length} work periods`);
             
-            // If this period starts before the last one ended, reduce overlap
-            if (lastEndDate && range.startDate < lastEndDate) {
-              const overlapMonths = Math.round((lastEndDate - range.startDate) / (1000 * 60 * 60 * 24 * 30.44));
-              months = Math.max(0, months - overlapMonths);
-              console.log(`Adjusted for overlap: ${range.duration} -> ${months} months`);
+            // Sort by start date and merge overlapping periods
+            const sortedRanges = allDateRanges.sort((a, b) => a.startDate - b.startDate);
+            let totalMonths = 0;
+            let lastEndDate = null;
+            
+            for (const range of sortedRanges) {
+              let months = range.duration;
+              
+              // If this period starts before the last one ended, reduce overlap
+              if (lastEndDate && range.startDate < lastEndDate) {
+                const overlapMonths = Math.round((lastEndDate - range.startDate) / (1000 * 60 * 60 * 24 * 30.44));
+                months = Math.max(0, months - overlapMonths);
+                console.log(`Adjusted for overlap: ${range.duration} -> ${months} months`);
+              }
+              
+              totalMonths += months;
+              lastEndDate = new Date(Math.max(lastEndDate?.getTime() || 0, range.endDate.getTime()));
             }
             
-            totalMonths += months;
-            lastEndDate = new Date(Math.max(lastEndDate?.getTime() || 0, range.endDate.getTime()));
+            yearsOfExperience = Math.floor(totalMonths / 12);
+            console.log(`Total experience calculated: ${totalMonths} months = ${yearsOfExperience} years`);
           }
           
-          yearsOfExperience = Math.floor(totalMonths / 12);
-          console.log(`Total experience calculated: ${totalMonths} months = ${yearsOfExperience} years`);
-        }
-        
-        // Fallback: Try AI analysis if no date ranges found
-        if (yearsOfExperience === 0) {
-          try {
-            console.log('No date ranges found, trying AI analysis...');
-            const aiAnalysis = await analyzeCvWithAI(actualText);
-            if (aiAnalysis && aiAnalysis.yearsOfExperience > 0) {
-              yearsOfExperience = aiAnalysis.yearsOfExperience;
-              console.log(`AI extracted ${yearsOfExperience} years of experience`);
+          // Fallback: Try AI analysis if no date ranges found but has work experience
+          if (yearsOfExperience === 0) {
+            try {
+              console.log('No date ranges found, trying AI analysis...');
+              const aiAnalysis = await analyzeCvWithAI(actualText);
+              if (aiAnalysis && aiAnalysis.yearsOfExperience > 0) {
+                yearsOfExperience = aiAnalysis.yearsOfExperience;
+                console.log(`AI extracted ${yearsOfExperience} years of experience`);
+              }
+            } catch (aiError) {
+              console.log('AI analysis also failed:', aiError.message);
             }
-          } catch (aiError) {
-            console.log('AI analysis also failed:', aiError.message);
           }
-        }
-        
-        // Final fallback: Use simple regex patterns only if everything else failed
-        if (yearsOfExperience === 0) {
-          console.log('Trying regex fallback for explicit experience mentions...');
-          const simplePatterns = [
-            /(\d+)\+?\s*years?\s+of\s+experience/gi,
-            /(\d+)\+?\s*years?\s+experience/gi,
-            /experience\s*:?\s*(\d+)\+?\s*years?/gi
-          ];
           
-          for (const pattern of simplePatterns) {
-            const matches = actualText.match(pattern);
-            if (matches && matches.length > 0) {
-              const numbers = matches[0].match(/\d+/g);
-              if (numbers) {
-                yearsOfExperience = parseInt(numbers[0]);
-                console.log(`Regex fallback found ${yearsOfExperience} years from: "${matches[0].trim()}"`);
-                break;
+          // Final fallback: Use regex patterns for explicit experience mentions
+          if (yearsOfExperience === 0) {
+            console.log('Trying regex fallback for explicit experience mentions...');
+            const simplePatterns = [
+              /(\d+)\+?\s*years?\s+of\s+(work|working|professional|industry|IT|software|development|programming|coding|business|technical)\s+experience/gi,
+              /(\d+)\+?\s*years?\s+(professional|work|working|industry|IT|software|development|programming|coding|business|technical)\s+experience/gi,
+              /total\s+of\s+(\d+)\+?\s*years?\s+experience/gi,
+              /over\s+(\d+)\+?\s*years?\s+of\s+experience/gi
+            ];
+            
+            for (const pattern of simplePatterns) {
+              const matches = actualText.match(pattern);
+              if (matches && matches.length > 0) {
+                const numbers = matches[0].match(/\d+/g);
+                if (numbers && parseInt(numbers[0]) <= 50) { // Reasonable limit
+                  yearsOfExperience = parseInt(numbers[0]);
+                  console.log(`Regex fallback found ${yearsOfExperience} years from: "${matches[0].trim()}"`);
+                  break;
+                }
               }
             }
           }
+        } else {
+          console.log('No corporate/company work experience detected - setting experience to 0');
+          yearsOfExperience = 0;
         }
 
         // Extract skills
