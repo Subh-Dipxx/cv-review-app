@@ -3,6 +3,282 @@ import pool from "../../lib/db";
 import { analyzeCvWithAI } from "../../lib/ai-service";
 import { getAuth } from "@clerk/nextjs/server";
 
+// Helper function to parse work history from CV text
+function parseWorkHistory(text) {
+  const workHistory = [];
+  const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+  
+  console.log('Starting work history parsing...');
+  
+  // Look for lines with date ranges throughout the document
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const dateMatches = extractDateRanges(line);
+    
+    if (dateMatches.length > 0) {
+      console.log(`Found date line: "${line}"`);
+      
+      // Parse the date range
+      const { startDate, endDate, duration } = parseDateRange(dateMatches[0]);
+      
+      if (duration > 0) {
+        // Look for job title (usually 1-2 lines before the date)
+        let jobTitle = 'Unknown Position';
+        for (let j = Math.max(0, i - 3); j < i; j++) {
+          const candidateLine = lines[j];
+          if (candidateLine && candidateLine.length > 5 && candidateLine.length < 100 &&
+              !extractDateRanges(candidateLine).length && // Not a date line
+              !candidateLine.includes('@') && // Not an email
+              !candidateLine.includes('+') && // Not a phone
+              candidateLine.match(/[A-Za-z]/) && // Contains letters
+              !candidateLine.toLowerCase().includes('experience') &&
+              !candidateLine.toLowerCase().includes('education')) {
+            jobTitle = candidateLine;
+          }
+        }
+        
+        // Look for company (usually 1-2 lines before or after the date)
+        let company = 'Unknown Company';
+        for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 1); j++) {
+          const candidateLine = lines[j];
+          if (candidateLine && candidateLine !== line && candidateLine !== jobTitle &&
+              candidateLine.length > 3 && candidateLine.length < 80 &&
+              !extractDateRanges(candidateLine).length && // Not a date line
+              !candidateLine.includes('@') && // Not an email
+              !candidateLine.includes('+') && // Not a phone
+              !candidateLine.startsWith('•') && // Not a bullet point
+              candidateLine.match(/[A-Za-z]/)) { // Contains letters
+            company = candidateLine;
+            break;
+          }
+        }
+        
+        const job = {
+          position: jobTitle,
+          company: company,
+          startDate,
+          endDate,
+          duration,
+          rawText: line
+        };
+        
+        workHistory.push(job);
+        console.log(`Added job: ${jobTitle} at ${company} (${duration} months)`);
+      }
+    }
+  }
+  
+  console.log(`Total jobs found: ${workHistory.length}`);
+  return workHistory.filter(job => job.duration > 0);
+}
+
+// Find job title near a date line
+function findJobTitle(lines, dateLineIndex) {
+  const jobTitleKeywords = [
+    'developer', 'engineer', 'manager', 'analyst', 'consultant', 'specialist',
+    'coordinator', 'administrator', 'executive', 'director', 'lead', 'senior',
+    'junior', 'intern', 'associate', 'assistant', 'supervisor', 'officer',
+    'designer', 'architect', 'programmer', 'tester', 'qa', 'devops', 'scientist'
+  ];
+  
+  // Search in nearby lines (typically job title is 1-3 lines before the date)
+  for (let offset = -3; offset <= 1; offset++) {
+    const index = dateLineIndex + offset;
+    if (index >= 0 && index < lines.length) {
+      const line = lines[index];
+      const cleanLine = line.replace(/[•\-]/g, '').trim();
+      
+      // Check if line contains job title keywords and looks like a title
+      if (jobTitleKeywords.some(keyword => cleanLine.toLowerCase().includes(keyword)) &&
+          cleanLine.length > 5 && cleanLine.length < 80 &&
+          !extractDateRanges(line).length && // Not a date line
+          !isCompanyLine(line)) { // Not a company line
+        return cleanLine;
+      }
+    }
+  }
+  
+  return 'Unknown Position';
+}
+
+// Find company name near a date line
+function findCompany(lines, dateLineIndex) {
+  const companyIndicators = ['ltd', 'llc', 'inc', 'corp', 'company', 'technologies', 'systems', 'solutions', 'group'];
+  
+  // Search in nearby lines (company is usually 1-2 lines before or after the date)
+  for (let offset = -2; offset <= 2; offset++) {
+    const index = dateLineIndex + offset;
+    if (index >= 0 && index < lines.length) {
+      const line = lines[index];
+      const cleanLine = line.replace(/[•\-]/g, '').trim();
+      
+      // Check if line looks like a company name
+      if (isCompanyLine(cleanLine) || 
+          companyIndicators.some(indicator => cleanLine.toLowerCase().includes(indicator))) {
+        return cleanLine;
+      }
+    }
+  }
+  
+  return 'Unknown Company';
+}
+
+// Helper function to detect company lines
+function isCompanyLine(line) {
+  const cleanLine = line.toLowerCase().trim();
+  const companyIndicators = ['ltd', 'llc', 'inc', 'corp', 'company', 'technologies', 'systems', 'solutions', 'group'];
+  
+  // Company line indicators
+  return companyIndicators.some(indicator => cleanLine.includes(indicator)) ||
+    (line.length > 3 && line.length < 60 && 
+     !line.includes('•') && 
+     !extractDateRanges(line).length && // Not a date line
+     !/^[a-z]/.test(line)); // Usually starts with capital letter
+}
+
+// Extract date ranges from text
+function extractDateRanges(text) {
+  const datePatterns = [
+    // Month Year - Month Year
+    /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{4}\s*[-–—]\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{4}/gi,
+    // MM/YYYY - MM/YYYY
+    /\d{1,2}\/\d{4}\s*[-–—]\s*\d{1,2}\/\d{4}/g,
+    // YYYY - YYYY
+    /\d{4}\s*[-–—]\s*\d{4}/g,
+    // Month Year - Present/Current
+    /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{4}\s*[-–—]\s*(present|current|now)/gi,
+    // YYYY - Present/Current
+    /\d{4}\s*[-–—]\s*(present|current|now)/gi,
+    // MM/YYYY - Present/Current
+    /\d{1,2}\/\d{4}\s*[-–—]\s*(present|current|now)/gi
+  ];
+  
+  const matches = [];
+  datePatterns.forEach(pattern => {
+    const found = text.match(pattern);
+    if (found) {
+      matches.push(...found);
+    }
+  });
+  
+  return matches;
+}
+
+// Parse a date range string into start date, end date, and duration
+function parseDateRange(dateRange) {
+  const currentDate = new Date();
+  const parts = dateRange.split(/[-–—]/).map(part => part.trim());
+  
+  if (parts.length !== 2) {
+    return { startDate: null, endDate: null, duration: 0 };
+  }
+  
+  const startDate = parseDate(parts[0]);
+  let endDate;
+  
+  if (parts[1].toLowerCase().includes('present') || 
+      parts[1].toLowerCase().includes('current') ||
+      parts[1].toLowerCase().includes('now')) {
+    endDate = currentDate;
+  } else {
+    endDate = parseDate(parts[1]);
+  }
+  
+  if (!startDate || !endDate) {
+    return { startDate: null, endDate: null, duration: 0 };
+  }
+  
+  // Calculate duration in months
+  const duration = Math.max(1, Math.round((endDate - startDate) / (1000 * 60 * 60 * 24 * 30)));
+  
+  return { startDate, endDate, duration };
+}
+
+// Parse various date formats
+function parseDate(dateStr) {
+  dateStr = dateStr.trim();
+  
+  // Month Year format (e.g., "Jan 2020", "January 2020")
+  const monthYearMatch = dateStr.match(/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+(\d{4})/i);
+  if (monthYearMatch) {
+    const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    const monthIndex = monthNames.findIndex(m => monthYearMatch[1].toLowerCase().startsWith(m));
+    return new Date(parseInt(monthYearMatch[2]), monthIndex, 1);
+  }
+  
+  // MM/YYYY format
+  const mmyyyyMatch = dateStr.match(/^(\d{1,2})\/(\d{4})$/);
+  if (mmyyyyMatch) {
+    return new Date(parseInt(mmyyyyMatch[2]), parseInt(mmyyyyMatch[1]) - 1, 1);
+  }
+  
+  // YYYY format
+  const yyyyMatch = dateStr.match(/^(\d{4})$/);
+  if (yyyyMatch) {
+    return new Date(parseInt(yyyyMatch[1]), 0, 1);
+  }
+  
+  return null;
+}
+
+
+
+// Calculate total years of experience from work history
+function calculateTotalExperience(workHistory) {
+  if (!workHistory || workHistory.length === 0) {
+    return 0;
+  }
+  
+  // Convert job periods to time intervals
+  const periods = workHistory
+    .filter(job => job.startDate && job.endDate && job.duration > 0)
+    .map(job => ({
+      start: job.startDate,
+      end: job.endDate,
+      months: job.duration
+    }))
+    .sort((a, b) => a.start - b.start);
+  
+  if (periods.length === 0) {
+    return 0;
+  }
+  
+  console.log('Calculating experience from periods:', periods.map(p => ({
+    start: p.start.toISOString().substring(0, 10),
+    end: p.end.toISOString().substring(0, 10),
+    months: p.months
+  })));
+  
+  // Merge overlapping periods
+  const merged = [];
+  let current = { ...periods[0] };
+  
+  for (let i = 1; i < periods.length; i++) {
+    const next = periods[i];
+    
+    // If periods overlap or are adjacent, merge them
+    if (next.start <= current.end) {
+      current.end = new Date(Math.max(current.end.getTime(), next.end.getTime()));
+    } else {
+      // No overlap, add current period and start a new one
+      merged.push(current);
+      current = { ...next };
+    }
+  }
+  merged.push(current);
+  
+  // Calculate total months from merged periods
+  const totalMonths = merged.reduce((total, period) => {
+    const months = Math.max(1, Math.round((period.end - period.start) / (1000 * 60 * 60 * 24 * 30.44)));
+    return total + months;
+  }, 0);
+  
+  const years = Math.floor(totalMonths / 12);
+  console.log(`Total experience: ${totalMonths} months = ${years} years`);
+  
+  return years;
+}
+
 export async function POST(request) {
   let connection;
   console.log("POST /api/process-cv - Request received");
@@ -184,30 +460,94 @@ export async function POST(request) {
           }
         }
 
-        // Extract years of experience
+        // Extract years of experience by parsing work history
         let yearsOfExperience = 0;
-        const experiencePatterns = [
-          /(\d+)\+?\s*years?\s+of\s+experience/gi,
-          /(\d+)\+?\s*years?\s+experience/gi,
-          /experience\s*:?\s*(\d+)\+?\s*years?/gi,
-          /(\d+)\+?\s*years?\s+in/gi,
-          /(\d+)\+?\s*yr?s?\s+exp/gi
-        ];
         
-        for (const pattern of experiencePatterns) {
-          const matches = actualText.match(pattern);
-          if (matches && matches.length > 0) {
-            const match = matches[0];
-            const numbers = match.match(/\d+/);
-            if (numbers) {
-              yearsOfExperience = parseInt(numbers[0]);
-              break;
+        console.log('Parsing work history from CV text...');
+        
+        // Simple approach: find all date ranges in the document
+        const allDateRanges = [];
+        const lines = actualText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+        
+        lines.forEach((line, index) => {
+          const dateMatches = extractDateRanges(line);
+          if (dateMatches.length > 0) {
+            const { startDate, endDate, duration } = parseDateRange(dateMatches[0]);
+            if (duration > 0 && startDate && endDate) {
+              allDateRanges.push({
+                startDate,
+                endDate,
+                duration,
+                rawText: line,
+                lineIndex: index
+              });
+              console.log(`Found date range: ${line} (${duration} months)`);
             }
+          }
+        });
+        
+        if (allDateRanges.length > 0) {
+          // Calculate total experience from all date ranges
+          console.log(`Found ${allDateRanges.length} work periods`);
+          
+          // Sort by start date and merge overlapping periods
+          const sortedRanges = allDateRanges.sort((a, b) => a.startDate - b.startDate);
+          let totalMonths = 0;
+          let lastEndDate = null;
+          
+          for (const range of sortedRanges) {
+            let months = range.duration;
+            
+            // If this period starts before the last one ended, reduce overlap
+            if (lastEndDate && range.startDate < lastEndDate) {
+              const overlapMonths = Math.round((lastEndDate - range.startDate) / (1000 * 60 * 60 * 24 * 30.44));
+              months = Math.max(0, months - overlapMonths);
+              console.log(`Adjusted for overlap: ${range.duration} -> ${months} months`);
+            }
+            
+            totalMonths += months;
+            lastEndDate = new Date(Math.max(lastEndDate?.getTime() || 0, range.endDate.getTime()));
+          }
+          
+          yearsOfExperience = Math.floor(totalMonths / 12);
+          console.log(`Total experience calculated: ${totalMonths} months = ${yearsOfExperience} years`);
+        }
+        
+        // Fallback: Try AI analysis if no date ranges found
+        if (yearsOfExperience === 0) {
+          try {
+            console.log('No date ranges found, trying AI analysis...');
+            const aiAnalysis = await analyzeCvWithAI(actualText);
+            if (aiAnalysis && aiAnalysis.yearsOfExperience > 0) {
+              yearsOfExperience = aiAnalysis.yearsOfExperience;
+              console.log(`AI extracted ${yearsOfExperience} years of experience`);
+            }
+          } catch (aiError) {
+            console.log('AI analysis also failed:', aiError.message);
           }
         }
         
-        // If no specific experience found, try to infer from graduation year
-  // Do NOT infer years of experience from graduation year. Only set if explicitly mentioned.
+        // Final fallback: Use simple regex patterns only if everything else failed
+        if (yearsOfExperience === 0) {
+          console.log('Trying regex fallback for explicit experience mentions...');
+          const simplePatterns = [
+            /(\d+)\+?\s*years?\s+of\s+experience/gi,
+            /(\d+)\+?\s*years?\s+experience/gi,
+            /experience\s*:?\s*(\d+)\+?\s*years?/gi
+          ];
+          
+          for (const pattern of simplePatterns) {
+            const matches = actualText.match(pattern);
+            if (matches && matches.length > 0) {
+              const numbers = matches[0].match(/\d+/g);
+              if (numbers) {
+                yearsOfExperience = parseInt(numbers[0]);
+                console.log(`Regex fallback found ${yearsOfExperience} years from: "${matches[0].trim()}"`);
+                break;
+              }
+            }
+          }
+        }
 
         // Extract skills
         const skillKeywords = ["javascript", "typescript", "python", "java", "c#", "php", "ruby", "sql", "html", "css", 

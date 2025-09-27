@@ -38,7 +38,7 @@ export async function analyzeCvWithAI(cvText) {
     const prompt = `
     Analyze the following CV/resume text and extract this information in JSON format:
     1. Most appropriate job category (choose exactly one): "Software Developer", "QA Engineer", "BA Engineer", "Project Manager", "Data Analyst", "Designer", "DevOps Engineer", or "Other"
-    2. Total years of job experience (as a number, return 0 if no experience found)
+    2. Total years of PROFESSIONAL WORK experience (calculate from employment history and job dates. Look for work periods like "Jan 2020 - Dec 2022", "2019 - Present", "6 months at Company X". Add up all employment periods, handle overlaps. Return 0 if no work history found.)
     3. Skills (as an array of strings)
     4. Current or most recent job title
     5. Brief professional summary (1-2 sentences)
@@ -47,6 +47,19 @@ export async function analyzeCvWithAI(cvText) {
     8. Phone number (if found)
     9. Name of the person (if found)
     10. Projects (as an array of objects with "name" and "description" fields, up to 3 projects)
+
+    IMPORTANT: For years of experience, look specifically for:
+    - "X years of experience"
+    - "X+ years working"
+    - "Over X years"
+    - "X years in [industry/role]"
+    - Employment history spans (calculate from start to end dates)
+    
+    Do NOT count:
+    - Years since graduation
+    - Course duration
+    - Age
+    - Internship duration (unless explicitly mentioned as work experience)
 
     CV TEXT:
     ${limitedText}
