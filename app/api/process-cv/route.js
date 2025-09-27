@@ -427,26 +427,43 @@ export async function POST(request) {
 
         // Extract college/university name - improved
         let collegeName = "Not specified";
+        
+        console.log(`🔍 Starting college extraction from text sample: "${actualText.substring(0, 200)}..."`);
+        
         const collegePatterns = [
-          /(?:university\s+of\s+)([a-zA-Z\s]+)/gi,
-          /([a-zA-Z\s]+)\s+university/gi,
-          /([a-zA-Z\s]+)\s+college/gi,
-          /(?:college\s+of\s+)([a-zA-Z\s]+)/gi,
-          /([a-zA-Z\s]+)\s+institute\s+of\s+technology/gi,
-          /([a-zA-Z\s]+)\s+technical\s+university/gi,
-          /([a-zA-Z\s]+)\s+school/gi,
-          /bachelor.*from\s+([a-zA-Z\s]+)/gi,
-          /master.*from\s+([a-zA-Z\s]+)/gi,
-          /graduated\s+from\s+([a-zA-Z\s]+)/gi
+          // Match full institution names including keywords
+          /([a-zA-Z][a-zA-Z\s&.,'-]*(?:university|college|institute|academy|school|education)[a-zA-Z\s&.,'-]*)/gi,
+          /([a-zA-Z][a-zA-Z\s&.,'-]*(?:technical|engineering|management|business|medical|dental|law)\s+(?:university|college|institute|academy|school)[a-zA-Z\s&.,'-]*)/gi,
+          /(?:university\s+of\s+)([a-zA-Z\s&.,'-]+)/gi,
+          /(?:college\s+of\s+)([a-zA-Z\s&.,'-]+)/gi,
+          /(?:institute\s+of\s+)([a-zA-Z\s&.,'-]+)/gi,
+          /bachelor.*?from\s+([a-zA-Z][a-zA-Z\s&.,'-]+)/gi,
+          /master.*?from\s+([a-zA-Z][a-zA-Z\s&.,'-]+)/gi,
+          /graduated\s+from\s+([a-zA-Z][a-zA-Z\s&.,'-]+)/gi,
+          /studied\s+at\s+([a-zA-Z][a-zA-Z\s&.,'-]+)/gi
         ];
         
-        for (const pattern of collegePatterns) {
+        for (let i = 0; i < collegePatterns.length; i++) {
+          const pattern = collegePatterns[i];
           const matches = actualText.match(pattern);
+          console.log(`Pattern ${i + 1} matches:`, matches ? matches.slice(0, 3) : 'none');
+          
           if (matches && matches.length > 0) {
-            // Extract the university/college name from the match
-            let match = matches[0].replace(/university|college|institute|school|from|bachelor|master|graduated/gi, '').trim();
-            if (match.length > 3 && match.length < 100) {
+            // Take the full match or the captured group
+            let match = matches[0];
+            console.log(`Raw match from pattern ${i + 1}: "${match}"`);
+            
+            // Only clean up prefixes like "from", "bachelor", "master", "graduated from"
+            match = match.replace(/^(?:bachelor.*?from\s+|master.*?from\s+|graduated\s+from\s+|studied\s+at\s+)/gi, '').trim();
+            
+            // Clean up any trailing punctuation but keep the full institution name
+            match = match.replace(/[.,;]+$/, '').trim();
+            
+            console.log(`Cleaned match: "${match}"`);
+            
+            if (match.length > 5 && match.length < 150) {
               collegeName = match;
+              console.log(`✅ Final extracted college name: "${collegeName}"`);
               break;
             }
           }
@@ -694,17 +711,17 @@ function checkForActualWorkExperience(text) {
         // College patterns - looking for academy, university, college, institute
         const collegeEducationPatterns = [
           // Pattern: "Bachelor of Science in Computer Science from University of XYZ"
-          /(?:bachelor|master|phd|doctorate).*(?:in|of)\s+([a-zA-Z\s]+)\s+(?:from|at)\s+([a-zA-Z\s,.-]+(?:academy|university|college|institute))/gi,
+          /(?:bachelor|master|phd|doctorate).*(?:in|of)\s+([a-zA-Z\s]+)\s+(?:from|at)\s+([a-zA-Z][a-zA-Z\s,.-]*(?:academy|university|college|institute|school)[a-zA-Z\s,.-]*)/gi,
           // Pattern: "B.Tech in Computer Science, XYZ Academy"
-          /(?:b\.?tech\.?|b\.?e\.?|m\.?tech\.?|m\.?e\.?)\s+(?:in\s+)?([a-zA-Z\s]+),?\s*([a-zA-Z\s,.-]+(?:academy|university|college|institute))/gi,
+          /(?:b\.?tech\.?|b\.?e\.?|m\.?tech\.?|m\.?e\.?)\s+(?:in\s+)?([a-zA-Z\s]+),?\s*([a-zA-Z][a-zA-Z\s,.-]*(?:academy|university|college|institute|school)[a-zA-Z\s,.-]*)/gi,
           // Pattern: "graduated from Academy/University"
-          /(?:graduated\s+from|studied\s+at|attended)\s+([a-zA-Z\s,.-]+(?:academy|university|college|institute))/gi,
+          /(?:graduated\s+from|studied\s+at|attended)\s+([a-zA-Z][a-zA-Z\s,.-]*(?:academy|university|college|institute|school)[a-zA-Z\s,.-]*)/gi,
           // Pattern: "Bachelor degree from XYZ Academy"
-          /(?:bachelor|master|phd|degree)\s+(?:degree\s+)?(?:from|at)\s+([a-zA-Z\s,.-]+(?:academy|university|college|institute))/gi,
+          /(?:bachelor|master|phd|degree)\s+(?:degree\s+)?(?:from|at)\s+([a-zA-Z][a-zA-Z\s,.-]*(?:academy|university|college|institute|school)[a-zA-Z\s,.-]*)/gi,
           // Pattern: "XYZ Academy - Bachelor of Science"
-          /([a-zA-Z\s,.-]+(?:academy|university|college|institute))\s*[-–—]\s*(?:bachelor|master|phd)/gi,
-          // Simple pattern: any text followed by academy/university/college/institute
-          /([a-zA-Z\s,.-]+(?:academy|university|college|institute))/gi
+          /([a-zA-Z][a-zA-Z\s,.-]*(?:academy|university|college|institute|school)[a-zA-Z\s,.-]*)\s*[-–—]\s*(?:bachelor|master|phd)/gi,
+          // Simple pattern: any text followed by academy/university/college/institute/school with full name
+          /([a-zA-Z][a-zA-Z\s,.-]*(?:academy|university|college|institute|school)[a-zA-Z\s,.-]*)/gi
         ];
         
         // Extract school information
@@ -730,13 +747,16 @@ function checkForActualWorkExperience(text) {
             if (match[2]) {
               // Pattern that captured both degree and institution
               collegeName = match[2].trim();
+              console.log(`Extracted college name from pattern (degree+institution): "${collegeName}"`);
             } else if (match[1]) {
               // Pattern that captured institution only
               collegeName = match[1].trim();
+              console.log(`Extracted college name from pattern (institution only): "${collegeName}"`);
             }
             
             if (collegeName && collegeName.length > 3 && collegeName.length < 100) {
               college = collegeName;
+              console.log(`Final college name set to: "${college}"`);
               break;
             }
           }
@@ -768,6 +788,7 @@ function checkForActualWorkExperience(text) {
                  line.toLowerCase().includes('college') ||
                  line.toLowerCase().includes('institute'))) {
               if (line.length > 5 && line.length < 100) {
+                console.log(`Fallback college extraction found line: "${line}"`);
                 college = line;
               }
             }
