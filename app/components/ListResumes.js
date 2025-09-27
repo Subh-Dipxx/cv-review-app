@@ -416,6 +416,74 @@ const ListResumes = () => {
     }
   };
 
+  // Download individual resume
+  const downloadResume = async (resumeId, resumeName) => {
+    try {
+      toast.loading(`Downloading ${resumeName || 'resume'}...`, { id: `download-${resumeId}` });
+      
+      console.log(`Downloading resume ID: ${resumeId}`);
+      const response = await fetch(`/api/download-resume?id=${resumeId}`);
+      
+      if (!response.ok) {
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+          console.error('Download error details:', errorData);
+        } catch (parseError) {
+          console.error('Could not parse error response as JSON:', parseError);
+          try {
+            const errorText = await response.text();
+            console.error('Error response text:', errorText);
+            errorMessage = errorText || errorMessage;
+          } catch (textError) {
+            console.error('Could not get error response text:', textError);
+          }
+        }
+        throw new Error(errorMessage);
+      }
+      
+      // Get the file blob
+      const blob = await response.blob();
+      console.log(`Downloaded blob size: ${blob.size} bytes`);
+      
+      if (blob.size === 0) {
+        throw new Error('Downloaded file is empty');
+      }
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      
+      // Set filename from Content-Disposition header or use default
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = 'resume.pdf';
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="(.+)"/); 
+        if (filenameMatch) {
+          filename = filenameMatch[1];
+        }
+      } else if (resumeName) {
+        filename = resumeName.endsWith('.pdf') ? resumeName : `${resumeName}.pdf`;
+      }
+      
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      
+      // Clean up
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast.success(`Downloaded ${filename}`, { id: `download-${resumeId}` });
+    } catch (error) {
+      console.error('Error downloading resume:', error);
+      toast.error(`Failed to download resume: ${error.message}`, { id: `download-${resumeId}` });
+    }
+  };
+
   // Handle button click
   const handleListClick = async () => {
     await fetchResumes();
@@ -885,38 +953,70 @@ const ListResumes = () => {
                 </div>
               )}
               
-              {/* Delete button */}
-              <button 
-                onClick={() => deleteCv(resume.id)} 
-                disabled={deletingId === resume.id}
-                style={{ 
-                  position: 'absolute', 
-                  top: '8px', 
-                  right: '8px', 
-                  background: 'transparent', 
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '4px',
-                  borderRadius: '4px',
-                  fontSize: '1rem',
-                  color: '#ef4444',
-                  opacity: 0.7
-                }}
-                onMouseOver={(e) => {
-                  e.currentTarget.style.background = '#fee2e2';
-                  e.currentTarget.style.opacity = '1';
-                }}
-                onMouseOut={(e) => {
-                  e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.opacity = '0.7';
-                }}
-                title="Delete this CV"
-              >
-                {deletingId === resume.id ? '⏳' : '🗑️'}
-              </button>
+              {/* Action buttons */}
+              <div style={{
+                position: 'absolute',
+                top: '8px',
+                right: '8px',
+                display: 'flex',
+                gap: '4px'
+              }}>
+                {/* Download button */}
+                <button 
+                  onClick={() => downloadResume(resume.id, resume.pdfName || resume.name)}
+                  style={{ 
+                    background: 'transparent', 
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    borderRadius: '4px',
+                    fontSize: '1rem',
+                    color: '#10b981',
+                    opacity: 0.7
+                  }}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.background = '#ecfdf5';
+                    e.currentTarget.style.opacity = '1';
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.opacity = '0.7';
+                  }}
+                  title="Download this CV"
+                >
+                  📥
+                </button>
+                
+                {/* Delete button */}
+                <button 
+                  onClick={() => deleteCv(resume.id)} 
+                  disabled={deletingId === resume.id}
+                  style={{ 
+                    background: 'transparent', 
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    borderRadius: '4px',
+                    fontSize: '1rem',
+                    color: '#ef4444',
+                    opacity: 0.7
+                  }}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.background = '#fee2e2';
+                    e.currentTarget.style.opacity = '1';
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.opacity = '0.7';
+                  }}
+                  title="Delete this CV"
+                >
+                  {deletingId === resume.id ? '⏳' : '🗑️'}
+                </button>
+              </div>
               
               {/* Short Summary Display */}
-              <div style={{ paddingRight: '30px' }}>
+              <div style={{ paddingRight: '80px' }}>
                 {/* Name */}
                 <h3 style={{ 
                   fontSize: '1.1rem', 

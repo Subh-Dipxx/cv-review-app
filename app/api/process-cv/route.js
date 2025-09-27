@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "../../lib/db";
 import { analyzeCvWithAI } from "../../lib/ai-service";
 import { getAuth } from "@clerk/nextjs/server";
+import { uploadFileToSupabase } from "../../lib/supabase";
 
 // Helper function to parse work history from CV text
 function parseWorkHistory(text) {
@@ -311,6 +312,20 @@ export async function POST(request) {
         
         // Read file content
         const fileBuffer = await file.arrayBuffer();
+        
+        // Upload file to Supabase
+        let supabaseFilePath = null;
+        try {
+          console.log(`Uploading ${file.name} to Supabase...`);
+          const buffer = Buffer.from(fileBuffer);
+          const uploadResult = await uploadFileToSupabase(buffer, file.name, effectiveUserId);
+          supabaseFilePath = uploadResult.filePath; // Extract just the file path
+          console.log(`Successfully uploaded to Supabase: ${supabaseFilePath}`);
+        } catch (uploadError) {
+          console.error(`Failed to upload ${file.name} to Supabase:`, uploadError);
+          // Continue processing even if upload fails
+        }
+        
         let actualText = "";
         
         if (file.type === 'application/pdf') {
@@ -812,7 +827,8 @@ export async function POST(request) {
                  job_title = ?, 
                  skills = ?, 
                  recommended_roles = ?, 
-                 user_id = ?
+                 user_id = ?,
+                 supabase_file_path = ?
                WHERE id = ? AND user_id = ?`,
               [
                 name || 'Unknown', 
@@ -824,6 +840,7 @@ export async function POST(request) {
                 skills.join(', '),
                 formattedRoles,
                 effectiveUserId,
+                supabaseFilePath,  // Add supabase file path
                 cvId,
                 effectiveUserId
               ]
@@ -835,8 +852,8 @@ export async function POST(request) {
             const formattedRoles = JSON.stringify(recommendedRoles);
             
             const [insertResult] = await connection.query(
-              `INSERT INTO cvs (file_name, name, email, phone, professional_summary, years_of_experience, job_title, skills, recommended_roles, category, summary, user_id) 
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              `INSERT INTO cvs (file_name, name, email, phone, professional_summary, years_of_experience, job_title, skills, recommended_roles, category, summary, user_id, supabase_file_path) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               [
                 file.name,
                 name || 'Unknown', 
@@ -849,7 +866,8 @@ export async function POST(request) {
                 formattedRoles,
                 category,
                 `CV analysis for ${file.name}`,
-                effectiveUserId  // Use effective user ID (handles keyless mode)
+                effectiveUserId,  // Use effective user ID (handles keyless mode)
+                supabaseFilePath  // Store the Supabase file path
               ]
             );
             
