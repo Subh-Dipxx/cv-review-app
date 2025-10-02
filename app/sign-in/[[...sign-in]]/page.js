@@ -1,13 +1,14 @@
-﻿"use client";
+"use client";
 
 import { SignIn } from "@clerk/nextjs";
 import Link from "next/link";
 
-export default function LoginPage() {
+export default function SignInPage() {
   return (
     <div className="min-h-[calc(100vh-200px)] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-md">
         
+        {/* Top Branding */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
             <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-xl">
@@ -20,9 +21,10 @@ export default function LoginPage() {
           <p className="text-gray-600 mt-2">AI-Powered Candidate Analysis</p>
         </div>
 
+        {/* Login Card */}
         <div className="bg-white rounded-2xl shadow-2xl p-8 lg:p-10 border border-gray-200">
           <div className="mb-8">
-            <h2 className="text-3xl font-bold text-gray-900">Welcome Back</h2>
+            <h2 className="text-3xl font-bold text-gray-900">Welcome</h2>
             <p className="text-gray-600 mt-2">Sign in to access your dashboard</p>
           </div>
 
@@ -43,23 +45,19 @@ export default function LoginPage() {
                 footer: "hidden",
               }
             }}
-            routing="path"
-            path="/login"
-            signUpUrl="/register"
-            afterSignInUrl="/"
-            redirectUrl="/"
           />
 
           <div className="mt-6 text-center">
             <p className="text-gray-600">
               Don't have an account?{" "}
-              <Link href="/register" className="text-blue-600 hover:text-purple-600 font-bold">
+              <Link href="/sign-up" className="text-blue-600 hover:text-purple-600 font-bold">
                 Sign up for free
               </Link>
             </p>
           </div>
         </div>
 
+        {/* Security Badge */}
         <div className="mt-6 text-center">
           <div className="inline-flex items-center space-x-2 text-sm text-gray-500">
             <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">

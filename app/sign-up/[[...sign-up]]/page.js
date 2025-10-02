@@ -1,9 +1,9 @@
-﻿"use client";
+"use client";
 
-import { SignIn } from "@clerk/nextjs";
+import { SignUp } from "@clerk/nextjs";
 import Link from "next/link";
 
-export default function LoginPage() {
+export default function SignUpPage() {
   return (
     <div className="min-h-[calc(100vh-200px)] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-md">
@@ -22,11 +22,11 @@ export default function LoginPage() {
 
         <div className="bg-white rounded-2xl shadow-2xl p-8 lg:p-10 border border-gray-200">
           <div className="mb-8">
-            <h2 className="text-3xl font-bold text-gray-900">Welcome Back</h2>
-            <p className="text-gray-600 mt-2">Sign in to access your dashboard</p>
+            <h2 className="text-3xl font-bold text-gray-900">Create Account</h2>
+            <p className="text-gray-600 mt-2">Get started with your free account</p>
           </div>
 
-          <SignIn 
+          <SignUp 
             appearance={{
               elements: {
                 rootBox: "w-full",
@@ -43,18 +43,13 @@ export default function LoginPage() {
                 footer: "hidden",
               }
             }}
-            routing="path"
-            path="/login"
-            signUpUrl="/register"
-            afterSignInUrl="/"
-            redirectUrl="/"
           />
 
           <div className="mt-6 text-center">
             <p className="text-gray-600">
-              Don't have an account?{" "}
-              <Link href="/register" className="text-blue-600 hover:text-purple-600 font-bold">
-                Sign up for free
+              Already have an account?{" "}
+              <Link href="/sign-in" className="text-blue-600 hover:text-purple-600 font-bold">
+                Sign in
               </Link>
             </p>
           </div>
