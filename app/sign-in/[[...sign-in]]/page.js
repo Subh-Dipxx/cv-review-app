@@ -23,29 +23,33 @@ export default function SignInPage() {
 
         {/* Login Card */}
         <div className="bg-white rounded-2xl shadow-2xl p-8 lg:p-10 border border-gray-200">
-          <div className="mb-8">
+          <div className="mb-8 text-center">
             <h2 className="text-3xl font-bold text-gray-900">Welcome</h2>
             <p className="text-gray-600 mt-2">Sign in to access your dashboard</p>
           </div>
 
-          <SignIn 
-            appearance={{
-              elements: {
-                rootBox: "w-full",
-                card: "shadow-none w-full bg-transparent",
-                header: "hidden",
-                socialButtonsBlockButton: "w-full bg-white border-2 border-gray-300 hover:bg-gray-50 hover:border-blue-500 transition-all duration-200 rounded-xl py-3 font-semibold",
-                socialButtonsBlockButtonText: "text-gray-700 font-semibold",
-                formButtonPrimary: "w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold shadow-lg hover:shadow-xl transition-all duration-200 rounded-xl py-3.5",
-                footerActionLink: "text-blue-600 hover:text-purple-600 font-semibold",
-                formFieldInput: "w-full border-2 border-gray-300 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 rounded-xl py-3 px-4 text-gray-900",
-                formFieldLabel: "text-gray-800 font-semibold mb-2",
-                dividerLine: "bg-gray-300",
-                dividerText: "text-gray-500 px-4",
-                footer: "hidden",
-              }
-            }}
-          />
+          <div className="flex justify-center">
+            <SignIn 
+              appearance={{
+                elements: {
+                  rootBox: "w-full flex justify-center",
+                  card: "shadow-none w-full bg-transparent flex flex-col items-center",
+                  header: "hidden",
+                  socialButtonsBlock: "w-full flex flex-col items-center",
+                  socialButtonsBlockButton: "w-full bg-white border-2 border-gray-300 hover:bg-gray-50 hover:border-blue-500 transition-all duration-200 rounded-xl py-3 font-semibold",
+                  socialButtonsBlockButtonText: "text-gray-700 font-semibold",
+                  formButtonPrimary: "w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold shadow-lg hover:shadow-xl transition-all duration-200 rounded-xl py-3.5",
+                  footerActionLink: "text-blue-600 hover:text-purple-600 font-semibold",
+                  formFieldInput: "w-full border-2 border-gray-300 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 rounded-xl py-3 px-4 text-gray-900",
+                  formFieldLabel: "text-gray-800 font-semibold mb-2",
+                  dividerLine: "bg-gray-300",
+                  dividerText: "text-gray-500 px-4",
+                  footer: "hidden",
+                  main: "w-full flex flex-col items-center",
+                }
+              }}
+            />
+          </div>
 
           <div className="mt-6 text-center">
             <p className="text-gray-600">
