@@ -1,1 +1,0 @@
-﻿John Doe\njohndoe@example.com\n5 years of experience in JavaScript and React development\nFrontend Developer
