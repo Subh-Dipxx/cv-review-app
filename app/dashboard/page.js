@@ -83,7 +83,7 @@ export default function DashboardPage() {
 
   const fetchAnalytics = async () => {
     try {
-      const response = await fetch('/api/analytics');
+      const response = await fetch('/api/extract-pdf-text/analytics');
       if (response.ok) {
         const data = await response.json();
         setAnalytics(data);

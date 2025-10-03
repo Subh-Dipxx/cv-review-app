@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import pool from '../../lib/db.js';
+import pool from '../../../lib/db.js';
 
 export async function GET() {
   try {
