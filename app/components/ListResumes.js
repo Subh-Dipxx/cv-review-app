@@ -917,8 +917,8 @@ const ListResumes = () => {
             ? Math.max(...uniqueResumes.map(resume => resume.matchPercentage || 0))
             : 0;
           
-          // Return the mapped JSX elements
-          return uniqueResumes.slice(0, 20).map((resume, index) => {
+          // Return the mapped JSX elements - showing ALL resumes (removed .slice(0, 20) limit)
+          return uniqueResumes.map((resume, index) => {
             console.log(`Displaying resume ${resume.id} - ${resume.pdfName}`);
             const isTopCandidate = (searchText || experienceLevel || selectedSkills.length > 0 || roleCategory) && 
                                    resume.matchPercentage === highestMatchPercentage && 

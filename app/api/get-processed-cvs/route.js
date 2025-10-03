@@ -25,17 +25,16 @@ export async function GET(request) {
     
     console.log('Connected to database in get-processed-cvs');
     
-    // Modified query to filter by user_id and exclude old entries with null user_id
-    // Only fetch CVs belonging to the current user and exclude legacy data
+    // Modified query to show ALL unique resumes (not filtered by user)
+    // This ensures all uploaded resumes are visible
     const [rows] = await connection.query(`
       SELECT * FROM cvs
-      WHERE user_id = ? AND user_id IS NOT NULL AND id IN (
+      WHERE id IN (
         SELECT MAX(id) FROM cvs
-        WHERE user_id = ? AND user_id IS NOT NULL
         GROUP BY file_name
       )
       ORDER BY created_at DESC
-    `, [effectiveUserId, effectiveUserId]);
+    `);
     
     console.log(`Retrieved ${rows.length} processed CVs from database`);
     
